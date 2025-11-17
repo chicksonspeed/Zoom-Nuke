@@ -45,12 +45,30 @@ done
 
 # ─── 2. Check disk space ──────────────────────────────────
 echo "💾 Checking available disk space..."
-AVAILABLE=$(df "$HOME/Downloads" | awk 'NR==2 {print $4}')
-[[ $AVAILABLE -gt $REQUIRED_SPACE ]] || { 
-  echo "❌ Insufficient disk space. Need 500MB, have $((AVAILABLE/1024/1024))MB"; 
-  exit 1; 
-}
-echo "✅ Sufficient disk space available"
+# NOTE: On macOS, df outputs in 512-byte blocks by default, which causes incorrect calculations.
+# Using df -k outputs in KB (1024-byte blocks), then we convert to bytes for accurate comparison.
+# Without -k, 65 GiB free would incorrectly show as ~130 MB (dividing 512-byte blocks by 1024/1024).
+AVAILABLE_KB=$(df -k "$HOME/Downloads" 2>/dev/null | awk 'NR==2 {print $4}' 2>/dev/null || echo "")
+if [[ -z "$AVAILABLE_KB" ]] || ! [[ "$AVAILABLE_KB" =~ ^[0-9]+$ ]]; then
+  # Fallback to home directory if Downloads check fails
+  AVAILABLE_KB=$(df -k "$HOME" 2>/dev/null | awk 'NR==2 {print $4}' 2>/dev/null || echo "")
+fi
+if [[ -z "$AVAILABLE_KB" ]] || ! [[ "$AVAILABLE_KB" =~ ^[0-9]+$ ]]; then
+  # Fallback to root filesystem if home check fails
+  AVAILABLE_KB=$(df -k "/" 2>/dev/null | awk 'NR==2 {print $4}' 2>/dev/null || echo "")
+fi
+
+if [[ -n "$AVAILABLE_KB" ]] && [[ "$AVAILABLE_KB" =~ ^[0-9]+$ ]]; then
+  AVAILABLE=$((AVAILABLE_KB * 1024))  # Convert KB to bytes
+  AVAILABLE_MB=$((AVAILABLE/1024/1024))
+  [[ $AVAILABLE -gt $REQUIRED_SPACE ]] || { 
+    echo "❌ Insufficient disk space. Need 500MB, have ${AVAILABLE_MB}MB"; 
+    exit 1; 
+  }
+  echo "✅ Sufficient disk space available (${AVAILABLE_MB}MB)"
+else
+  echo "⚠️ Could not determine available disk space. Continuing anyway..."
+fi
 
 # ─── 3. Hardware fingerprint analysis ─────────────────────
 echo "🔍 Analyzing hardware fingerprint..."
