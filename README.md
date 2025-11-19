@@ -52,9 +52,36 @@ The script automatically checks for these system tools:
 - `pkgutil` - Package management
 - `system_profiler` - System information
 
+### Build Requirements (for creating app bundle)
+- `bash` - For running the build script
+- `chmod` - For setting executable permissions
+- `mkdir` - For creating directory structure
+- `cp` - For copying files
+
 ## 📖 Usage
 
-### Basic Usage
+### macOS App Bundle
+
+For easy GUI access, you can create a macOS app bundle that can be launched from Finder:
+
+```bash
+# Build the macOS app bundle
+./build_app_bundle.sh
+
+# Launch the app bundle (equivalent to double-clicking in Finder)
+open Screw1132_Overkill.app
+
+# Or run the executable directly
+./Screw1132_Overkill.app/Contents/MacOS/Screw1132_Overkill --help
+```
+
+The app bundle provides the same functionality as the command-line script but can be:
+- **Double-clicked in Finder** to launch with default settings
+- **Dragged to Applications folder** for easy access
+- **Added to Dock** for quick launching
+- **Run from Spotlight** by searching for "Screw 1132 Overkill"
+
+### Basic Command-Line Usage
 
 ```bash
 # Run with confirmation prompts
@@ -81,6 +108,7 @@ The script automatically checks for these system tools:
 
 ### Execution Flow
 
+**Command-Line Script (`Screw1132_Overkill.sh`):**
 1. **System Validation** - Checks macOS, tools, and disk space
 2. **Hardware Analysis** - Captures current hardware fingerprint
 3. **User Confirmation** - Prompts for confirmation (unless --force)
@@ -94,7 +122,24 @@ The script automatically checks for these system tools:
 11. **Protection Setup** - Creates hardware protection script
 12. **Cleanup** - Removes temporary files and logs results
 
+**App Bundle Creation (`build_app_bundle.sh`):**
+1. **Validation** - Checks source script exists and is readable
+2. **Cleanup** - Removes any existing app bundle
+3. **Structure Creation** - Creates proper macOS app bundle directories
+4. **Script Preparation** - Copies and makes script executable
+5. **Metadata Generation** - Creates Info.plist with app metadata
+6. **Verification** - Validates complete app bundle structure
+7. **Testing** - Confirms executable script works correctly
+
 ## 📁 Files and Directories
+
+### Build System
+
+| File | Purpose |
+|------|---------|
+| `build_app_bundle.sh` | Automates creation of macOS app bundle |
+| `Screw1132_Overkill.app/` | Generated macOS app bundle (excluded from git) |
+| `.gitignore` | Excludes build artifacts and temporary files |
 
 ### Created/Modified Files
 
@@ -126,6 +171,99 @@ The script removes these Zoom-related items:
 - Package receipts
 - Homebrew installations (if present)
 - Various system caches
+
+## 📱 macOS App Bundle
+
+The `build_app_bundle.sh` script converts the command-line Bash script into a native macOS app bundle for enhanced user experience.
+
+### Features
+
+- **Native macOS Integration**: Creates a proper `.app` bundle that integrates with Finder, Spotlight, and Dock
+- **Double-Click Launch**: Users can simply double-click the app in Finder to run with default settings
+- **Drag & Drop Installation**: App can be copied to Applications folder like any other macOS app
+- **Spotlight Search**: App appears in Spotlight search results as "Screw 1132 Overkill"
+- **Dock Integration**: Can be added to Dock for quick access
+- **Preserved Functionality**: All original command-line options and features remain available
+
+### App Bundle Structure
+
+```
+Screw1132_Overkill.app/
+└── Contents/
+    ├── MacOS/
+    │   └── Screw1132_Overkill   # The executable script (without .sh extension)
+    ├── Resources/               # For future app resources (icons, etc.)
+    └── Info.plist              # macOS app metadata
+```
+
+### App Metadata
+
+The generated `Info.plist` includes:
+
+- **Bundle Identifier**: `com.chicksonspeed.screw1132overkill`
+- **App Name**: "Screw 1132 Overkill"
+- **Version**: 1.0.0
+- **Category**: Utilities
+- **Minimum macOS**: 10.14 (Mojave)
+- **Network Security**: Configured for Zoom download requirements
+- **High DPI**: Optimized for Retina displays
+
+### Building the App Bundle
+
+```bash
+# Make the build script executable (first time only)
+chmod +x build_app_bundle.sh
+
+# Create the app bundle
+./build_app_bundle.sh
+```
+
+The build script will:
+1. ✅ Validate the source script exists
+2. 🧹 Clean up any existing app bundle
+3. 📁 Create the proper directory structure
+4. 📋 Copy and prepare the executable script
+5. 📝 Generate the Info.plist with metadata
+6. 🔍 Verify the complete app bundle structure
+7. 📊 Display file details and usage instructions
+
+### Using the App Bundle
+
+**GUI Method:**
+1. Double-click `Screw1132_Overkill.app` in Finder
+2. The script will launch in Terminal with default settings
+
+**Spotlight Method:**
+1. Press `Cmd + Space` to open Spotlight
+2. Type "Screw 1132 Overkill"
+3. Press Enter to launch
+
+**Command-Line Method:**
+```bash
+# Launch via 'open' command (equivalent to double-clicking)
+open Screw1132_Overkill.app
+
+# Run the executable directly with options
+./Screw1132_Overkill.app/Contents/MacOS/Screw1132_Overkill --version
+./Screw1132_Overkill.app/Contents/MacOS/Screw1132_Overkill --force --deep-clean
+```
+
+**Installation:**
+```bash
+# Copy to Applications folder for system-wide access
+cp -R Screw1132_Overkill.app /Applications/
+
+# Launch from Applications
+open /Applications/Screw1132_Overkill.app
+```
+
+### Technical Notes
+
+- The app bundle is excluded from Git via `.gitignore` since it's a build artifact
+- The executable script inside the bundle maintains all original functionality
+- Terminal access will be requested when first launched (this is normal and required)
+- The app can be distributed as a single `.app` folder
+- No code signing is included (users may see security warnings on first launch)
 
 ## 🔧 Technical Details
 
@@ -225,6 +363,27 @@ The script attempts MAC spoofing using multiple methods:
 - Ensure script is executable: `chmod +x Screw1132_Overkill.sh`
 - Run with sudo if needed
 - Check SIP status
+
+### App Bundle Issues
+
+**Build Script Fails:**
+- Ensure source script exists: `ls -la Screw1132_Overkill.sh`
+- Check script permissions: `chmod +x build_app_bundle.sh`
+- Verify disk space for app bundle creation
+
+**App Bundle Won't Launch:**
+- Check macOS Gatekeeper settings (System Preferences > Security & Privacy)
+- Try right-clicking the app and selecting "Open" to bypass security warnings
+- Verify the executable is present: `ls -la Screw1132_Overkill.app/Contents/MacOS/`
+
+**Terminal Access Denied:**
+- Grant Terminal access in System Preferences > Security & Privacy > Privacy > Full Disk Access
+- This is required for the script to function properly
+
+**App Bundle Missing:**
+- The app bundle is excluded from Git and must be built locally
+- Run `./build_app_bundle.sh` to create it
+- Check `.gitignore` if you want to include it in version control
 
 ### Log Analysis
 
