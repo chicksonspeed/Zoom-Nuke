@@ -11,11 +11,20 @@ LOG="$HOME/zoom_fix.log"
 VERSION="3.0.0"
 ZOOM_URL="https://zoom.us/client/latest/Zoom.pkg"
 BACKUP_DIR="$HOME/.zoom_backup_$(date +%Y%m%d_%H%M%S)"
+MIN_MACOS_VERSION="10.15.0"
 
 # Logging setup
 exec > >(tee -i "$LOG") 2>&1
 
 USAGE="Usage: $0 [-f|--force] [-v|--version] [-h|--help] [-d|--deep-clean]"
+
+version_to_number() {
+  local version="$1"
+  local IFS='.'
+  local parts
+  read -r -a parts <<< "$version"
+  printf "%03d%03d%03d" "${parts[0]:-0}" "${parts[1]:-0}" "${parts[2]:-0}"
+}
 
 # ─── 0. Parse flags ───────────────────────────────────────
 FORCE=false
@@ -36,7 +45,14 @@ echo "🔍 Checking system requirements..."
 
 # Check macOS version for compatibility
 MACOS_VERSION=$(sw_vers -productVersion)
-echo "✅ macOS version: $MACOS_VERSION"
+CURRENT_VERSION_NUM=$(version_to_number "$MACOS_VERSION")
+MIN_VERSION_NUM=$(version_to_number "$MIN_MACOS_VERSION")
+if ((10#$CURRENT_VERSION_NUM < 10#$MIN_VERSION_NUM)); then
+  echo "❌ Unsupported macOS version: $MACOS_VERSION"
+  echo "   Minimum required version: $MIN_MACOS_VERSION"
+  exit 1
+fi
+echo "✅ macOS version: $MACOS_VERSION (minimum supported: $MIN_MACOS_VERSION)"
 
 for cmd in sudo curl openssl networksetup pkgutil system_profiler; do
   command -v "$cmd" &>/dev/null || { echo "❌ Missing $cmd."; exit 1; }
