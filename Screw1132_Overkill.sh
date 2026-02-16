@@ -257,6 +257,10 @@ sudo rm -rf /var/folders/*/com.apple.Safari* 2>/dev/null || true
 BROWSER_CACHES=(
   "$HOME/Library/Application Support/Google/Chrome/Default/Cache"
   "$HOME/Library/Application Support/Google/Chrome/Default/Code Cache"
+  "$HOME/Library/Application Support/Microsoft Edge/Default/Cache"
+  "$HOME/Library/Application Support/Microsoft Edge/Default/Code Cache"
+  "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Cache"
+  "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Code Cache"
   "$HOME/Library/Application Support/Mozilla/Firefox/Profiles/*/cache2"
   "$HOME/Library/Safari/LocalStorage"
   "$HOME/Library/Safari/WebpageIcons.db"
