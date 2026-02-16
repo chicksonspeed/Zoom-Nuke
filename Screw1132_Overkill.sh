@@ -10,6 +10,8 @@ trap 'echo "❌ Oops! Something went wrong at line $LINENO. Exiting…"; exit 1'
 LOG="$HOME/zoom_fix.log"
 VERSION="3.0.0"
 ZOOM_URL="https://zoom.us/client/latest/Zoom.pkg"
+INSTALLOMATOR_URL="https://github.com/Installomator/Installomator/releases/latest/download/Installomator.pkg"
+INSTALLOMATOR_BIN="/usr/local/Installomator/Installomator.sh"
 BACKUP_DIR="$HOME/.zoom_backup_$(date +%Y%m%d_%H%M%S)"
 MIN_MACOS_VERSION="10.15.0"
 
@@ -342,35 +344,60 @@ fi
 
 # ─── 15. Download & install Zoom ──────────────────────────
 PKG="$HOME/Downloads/Zoom.pkg"
+INSTALLOMATOR_PKG=""
+USED_INSTALLOMATOR=false
 echo "⬇️ Downloading Zoom from official source..."
 if ! curl -L --fail --silent --show-error --connect-timeout 30 --max-time 300 -o "$PKG" "$ZOOM_URL"; then
-  echo "❌ Download failed. Trying alternative method..."
-  # Try alternative download method
-  if ! curl -L --fail --silent --show-error --connect-timeout 30 --max-time 300 -o "$PKG" "https://cdn.zoom.us/prod/latest/Zoom.pkg"; then
-    echo "❌ All download methods failed. Check network connection."
+  echo "❌ Zoom package download failed. Trying Installomator fallback..."
+  INSTALLOMATOR_PKG="/tmp/Installomator.pkg"
+  if ! curl -L --fail --silent --show-error --connect-timeout 30 --max-time 300 -o "$INSTALLOMATOR_PKG" "$INSTALLOMATOR_URL"; then
+    echo "❌ Failed to download Installomator fallback package."
     exit 1
   fi
+
+  echo "📦 Installing Installomator..."
+  if ! sudo installer -pkg "$INSTALLOMATOR_PKG" -target /; then
+    echo "❌ Installomator installation failed."
+    exit 1
+  fi
+
+  if [[ ! -x "$INSTALLOMATOR_BIN" ]]; then
+    echo "❌ Installomator binary not found at $INSTALLOMATOR_BIN"
+    exit 1
+  fi
+
+  echo "📦 Installing Zoom via Installomator..."
+  if ! sudo "$INSTALLOMATOR_BIN" zoom; then
+    echo "❌ Installomator failed to install Zoom."
+    exit 1
+  fi
+
+  USED_INSTALLOMATOR=true
 fi
 
-# Verify package integrity
-echo "🔍 Verifying package integrity..."
-if ! pkgutil --check-signature "$PKG" >/dev/null 2>&1; then
-  echo "⚠️ Package signature verification failed, but continuing..."
+if ! $USED_INSTALLOMATOR; then
+  # Verify package integrity
+  echo "🔍 Verifying package integrity..."
+  if ! pkgutil --check-signature "$PKG" >/dev/null 2>&1; then
+    echo "⚠️ Package signature verification failed, but continuing..."
+  else
+    echo "✅ Package signature verified"
+  fi
+
+  # Check package size
+  PKG_SIZE=$(stat -f%z "$PKG" 2>/dev/null || stat -c%s "$PKG" 2>/dev/null || echo "0")
+  if [[ $PKG_SIZE -lt 10000000 ]]; then  # Less than 10MB
+    echo "❌ Downloaded package seems too small ($((PKG_SIZE/1024/1024))MB). Corrupted download?"
+    exit 1
+  fi
+
+  echo "📦 Installing Zoom..."
+  if ! sudo installer -pkg "$PKG" -target /; then
+    echo "❌ Installation failed."
+    exit 1
+  fi
 else
-  echo "✅ Package signature verified"
-fi
-
-# Check package size
-PKG_SIZE=$(stat -f%z "$PKG" 2>/dev/null || stat -c%s "$PKG" 2>/dev/null || echo "0")
-if [[ $PKG_SIZE -lt 10000000 ]]; then  # Less than 10MB
-  echo "❌ Downloaded package seems too small ($((PKG_SIZE/1024/1024))MB). Corrupted download?"
-  exit 1
-fi
-
-echo "📦 Installing Zoom..."
-if ! sudo installer -pkg "$PKG" -target /; then
-  echo "❌ Installation failed."
-  exit 1
+  echo "✅ Zoom installed via Installomator fallback"
 fi
 
 # ─── 16. Verify installation ──────────────────────────────
@@ -428,6 +455,9 @@ echo "✅ Hardware protection script created: $PROTECTION_SCRIPT"
 # ─── 19. Cleanup and finalization ───────────────────────
 echo "🧹 Cleaning up..."
 rm -f "$PKG"
+if [[ -n "$INSTALLOMATOR_PKG" ]]; then
+  rm -f "$INSTALLOMATOR_PKG"
+fi
 
 # Show backup location
 if [[ -d "$BACKUP_DIR" ]] && [[ "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]]; then
