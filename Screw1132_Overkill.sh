@@ -72,32 +72,31 @@ mkdir -p "$BACKUP_DIR"
   echo "macOS Version: $MACOS_VERSION"
   echo ""
   echo "=== SYSTEM INFO ==="
-  system_profiler SPHardwareDataType 2>/dev/null | grep -E "(Model Name|Model Identifier|Serial Number|Hardware UUID)"
+  system_profiler SPHardwareDataType 2>/dev/null | grep -E "(Model Name|Model Identifier|Serial Number|Hardware UUID)" || true
   echo ""
   echo "=== NETWORK INTERFACES ==="
-  ifconfig | grep -E "(ether|inet)" | head -10
+  ifconfig | grep -E "(ether|inet)" | head -10 || true
   echo ""
   echo "=== DISPLAY INFO ==="
-  system_profiler SPDisplaysDataType 2>/dev/null | grep -E "(Resolution|Pixel Depth)"
+  system_profiler SPDisplaysDataType 2>/dev/null | grep -E "(Resolution|Pixel Depth)" || true
   echo ""
   echo "=== STORAGE INFO ==="
-  system_profiler SPStorageDataType 2>/dev/null | grep -E "(Capacity|Protocol)"
+  system_profiler SPStorageDataType 2>/dev/null | grep -E "(Capacity|Protocol)" || true
   echo ""
   echo "=== AUDIO INFO ==="
-  system_profiler SPAudioDataType 2>/dev/null | grep -E "(Output|Input)"
+  system_profiler SPAudioDataType 2>/dev/null | grep -E "(Output|Input)" || true
 } > "$HARDWARE_INFO"
 
 echo "✅ Hardware fingerprint saved to: $HARDWARE_INFO"
 
 # ─── 4. Detect primary interface ─────────────────────────
 echo "🌐 Detecting network interface..."
-if networksetup -listallhardwareports | grep -q "Wi-Fi"; then
-  IF=$(networksetup -listallhardwareports \
-       | awk '/Wi-Fi/{getline; print $2}')
+HARDWARE_PORTS=$(networksetup -listallhardwareports 2>/dev/null || true)
+if awk '/Wi-Fi/{found=1} END{exit !found}' <<< "$HARDWARE_PORTS"; then
+  IF=$(awk '/Wi-Fi/{found=1} found && /Device:/{print $2; exit}' <<< "$HARDWARE_PORTS")
   INTERFACE_TYPE="Wi-Fi"
 else
-  IF=$(networksetup -listallhardwareports \
-       | awk '/Device/ {print $2}' | grep '^en' | head -n1)
+  IF=$(awk '/Device:/ && $2 ~ /^en/ {print $2; exit}' <<< "$HARDWARE_PORTS")
   INTERFACE_TYPE="Ethernet"
 fi
 [[ -n "$IF" ]] || { echo "❌ Could not find any en* interface."; exit 1; }
@@ -251,57 +250,65 @@ BROWSER_CACHES=(
   "$HOME/Library/Application Support/Microsoft Edge/Default/Code Cache"
   "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Cache"
   "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Code Cache"
-  "$HOME/Library/Application Support/Mozilla/Firefox/Profiles/*/cache2"
   "$HOME/Library/Safari/LocalStorage"
   "$HOME/Library/Safari/WebpageIcons.db"
 )
+
+# Expand Firefox profile caches safely when they exist
+shopt -s nullglob
+for firefox_cache in "$HOME"/Library/Application\ Support/Mozilla/Firefox/Profiles/*/cache2; do
+  BROWSER_CACHES+=("$firefox_cache")
+done
+shopt -u nullglob
 
 for browser_cache in "${BROWSER_CACHES[@]}"; do
   if [[ -d "$browser_cache" ]]; then
     echo "🧹 Clearing browser cache: $browser_cache"
     rm -rf "$browser_cache"/* 2>/dev/null || true
+  elif [[ -f "$browser_cache" ]]; then
+    echo "🧹 Removing browser cache file: $browser_cache"
+    rm -f "$browser_cache" 2>/dev/null || true
   fi
 done
 
 # ─── 11. Deep hardware fingerprint removal (if enabled) ───
 if $DEEP_CLEAN; then
-  echo "🔧 Performing deep hardware fingerprint removal..."
-  
-  # Clear additional system caches
-  DEEP_CACHE_DIRS=(
-    "/var/db/dyld"
-    "/var/db/SystemPolicy"
-    "/var/db/analyticsd"
-    "/var/db/launchd.db"
+  echo "🔧 Performing deep Zoom artifact cleanup..."
+
+  DEEP_CLEAN_PATHS=(
+    "$HOME/Library/Application Support/zoom.us"
+    "$HOME/Library/Caches/us.zoom.xos"
+    "$HOME/Library/Containers/us.zoom.xos"
+    "$HOME/Library/Logs/zoom.us"
+    "$HOME/Library/Preferences/us.zoom.xos.plist"
+    "$HOME/Library/Saved Application State/us.zoom.xos.savedState"
   )
-  
-  for deep_cache in "${DEEP_CACHE_DIRS[@]}"; do
-    if [[ -d "$deep_cache" ]]; then
-      echo "🧹 Deep clearing: $deep_cache"
-      sudo rm -rf "$deep_cache"/* 2>/dev/null || true
+
+  for deep_path in "${DEEP_CLEAN_PATHS[@]}"; do
+    if [[ -e "$deep_path" ]]; then
+      echo "🧹 Deep removing: $deep_path"
+      cp -R "$deep_path" "$BACKUP_DIR/" 2>/dev/null || true
+      rm -rf "$deep_path"
     fi
   done
-  
-  # Clear additional identifiers
-  echo "🔧 Clearing additional system identifiers..."
-  sudo rm -rf /var/db/analyticsd/events 2>/dev/null || true
-  sudo rm -rf /var/db/analyticsd/sessions 2>/dev/null || true
-  
-  # Clear Spotlight index (contains file fingerprints)
-  echo "🔧 Clearing Spotlight index..."
-  sudo mdutil -E / 2>/dev/null || true
-  
-  # Clear additional network identifiers
-  echo "🔧 Clearing network identifiers..."
-  sudo rm -rf /var/db/dhcpd_leases 2>/dev/null || true
-  sudo rm -rf /var/db/dhcpd_leases~ 2>/dev/null || true
-  
-  # Clear additional system logs
-  echo "🔧 Clearing system logs..."
-  sudo rm -rf /var/log/system.log* 2>/dev/null || true
-  sudo rm -rf /var/log/secure.log* 2>/dev/null || true
-  
-  echo "✅ Deep hardware fingerprint removal completed"
+
+  # Scan only safe cache/log roots for Zoom-named artifacts.
+  SAFE_SCAN_ROOTS=(
+    "$HOME/Library/Caches"
+    "$HOME/Library/Logs"
+    "$HOME/Library/Application Support"
+    "/Library/Caches"
+  )
+
+  for scan_root in "${SAFE_SCAN_ROOTS[@]}"; do
+    [[ -d "$scan_root" ]] || continue
+    while IFS= read -r -d '' match; do
+      echo "🧹 Deep removing matched artifact: $match"
+      rm -rf "$match" 2>/dev/null || true
+    done < <(find "$scan_root" -maxdepth 5 \( -iname "*zoom*" -o -iname "*us.zoom*" \) -print0 2>/dev/null || true)
+  done
+
+  echo "✅ Deep Zoom artifact cleanup completed"
 fi
 
 # ─── 12. Enhanced DNS and network cleanup ─────────────────
@@ -317,7 +324,10 @@ sudo rm -rf /var/folders/*/com.apple.dns* 2>/dev/null || true
 # ─── 13. Smart network service restart ────────────────────
 echo "🔄 Restarting network services..."
 # Find the primary network service
-SERV=$(networksetup -listallnetworkservices | grep -E "^(Wi-Fi|Ethernet)" | head -n1)
+SERV=$(networksetup -listallnetworkservices 2>/dev/null \
+  | sed '1d; s/^\* //' \
+  | grep -E "^(Wi-Fi|Ethernet)$" \
+  | head -n1 || true)
 
 if [[ -n "$SERV" ]]; then
   echo "🔄 Restarting network service: $SERV"
@@ -343,6 +353,7 @@ else
 fi
 
 # ─── 15. Download & install Zoom ──────────────────────────
+mkdir -p "$HOME/Downloads"
 PKG="$HOME/Downloads/Zoom.pkg"
 INSTALLOMATOR_PKG=""
 USED_INSTALLOMATOR=false
@@ -378,11 +389,12 @@ fi
 if ! $USED_INSTALLOMATOR; then
   # Verify package integrity
   echo "🔍 Verifying package integrity..."
-  if ! pkgutil --check-signature "$PKG" >/dev/null 2>&1; then
-    echo "⚠️ Package signature verification failed, but continuing..."
-  else
-    echo "✅ Package signature verified"
+  if ! SIGNATURE_INFO=$(pkgutil --check-signature "$PKG" 2>&1); then
+    echo "❌ Package signature verification failed. Aborting install."
+    echo "$SIGNATURE_INFO"
+    exit 1
   fi
+  echo "✅ Package signature verified"
 
   # Check package size
   PKG_SIZE=$(stat -f%z "$PKG" 2>/dev/null || stat -c%s "$PKG" 2>/dev/null || echo "0")
@@ -416,17 +428,16 @@ else
 fi
 
 # ─── 17. Enhanced data file wiping ───────────────────────
-echo "🧹 Wiping residual data files..."
+echo "🧹 Removing residual data files..."
 DATA="$HOME/Library/Application Support/zoom.us/data"
-mkdir -p "$DATA" 2>/dev/null || true
-
-for f in viper.ini zoomus.enc.db zoommeeting.enc.db; do
-  if [[ -f "$DATA/$f" ]]; then
-    echo "⚠️ Wiping $f"
-    : > "$DATA/$f"
-    chmod 400 "$DATA/$f"
-  fi
-done
+if [[ -d "$DATA" ]]; then
+  for f in viper.ini zoomus.enc.db zoommeeting.enc.db; do
+    if [[ -f "$DATA/$f" ]]; then
+      echo "⚠️ Removing $f"
+      rm -f "$DATA/$f"
+    fi
+  done
+fi
 
 # ─── 18. Additional hardware protection ───────────────────
 echo "🔧 Setting up additional hardware protection..."
@@ -471,7 +482,7 @@ echo "🎉 Zoom nuke & reinstall completed successfully!"
 echo "📋 Summary:"
 echo "   • Zoom processes killed"
 echo "   • App and data removed"
-echo "   • MAC address spoofed: $($MAC_SPOOFED && echo "Yes" || echo "No")"
+echo "   • MAC address spoofed: $(if $MAC_SPOOFED; then echo "Yes"; else echo "No"; fi)"
 echo "   • Hardware fingerprints cleared"
 echo "   • System caches flushed"
 echo "   • Network services restarted"
