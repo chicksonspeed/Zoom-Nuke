@@ -10,13 +10,23 @@ trap 'echo "❌ Oops! Something went wrong at line $LINENO. Exiting…"; exit 1'
 LOG="$HOME/zoom_fix.log"
 VERSION="3.0.0"
 ZOOM_URL="https://zoom.us/client/latest/Zoom.pkg"
-REQUIRED_SPACE=500000000  # 500MB in bytes
+INSTALLOMATOR_URL="https://github.com/Installomator/Installomator/releases/latest/download/Installomator.pkg"
+INSTALLOMATOR_BIN="/usr/local/Installomator/Installomator.sh"
 BACKUP_DIR="$HOME/.zoom_backup_$(date +%Y%m%d_%H%M%S)"
+MIN_MACOS_VERSION="10.15.0"
 
 # Logging setup
 exec > >(tee -i "$LOG") 2>&1
 
 USAGE="Usage: $0 [-f|--force] [-v|--version] [-h|--help] [-d|--deep-clean]"
+
+version_to_number() {
+  local version="$1"
+  local IFS='.'
+  local parts
+  read -r -a parts <<< "$version"
+  printf "%03d%03d%03d" "${parts[0]:-0}" "${parts[1]:-0}" "${parts[2]:-0}"
+}
 
 # ─── 0. Parse flags ───────────────────────────────────────
 FORCE=false
@@ -37,38 +47,18 @@ echo "🔍 Checking system requirements..."
 
 # Check macOS version for compatibility
 MACOS_VERSION=$(sw_vers -productVersion)
-echo "✅ macOS version: $MACOS_VERSION"
+CURRENT_VERSION_NUM=$(version_to_number "$MACOS_VERSION")
+MIN_VERSION_NUM=$(version_to_number "$MIN_MACOS_VERSION")
+if ((10#$CURRENT_VERSION_NUM < 10#$MIN_VERSION_NUM)); then
+  echo "❌ Unsupported macOS version: $MACOS_VERSION"
+  echo "   Minimum required version: $MIN_MACOS_VERSION"
+  exit 1
+fi
+echo "✅ macOS version: $MACOS_VERSION (minimum supported: $MIN_MACOS_VERSION)"
 
 for cmd in sudo curl openssl networksetup pkgutil system_profiler; do
   command -v "$cmd" &>/dev/null || { echo "❌ Missing $cmd."; exit 1; }
 done
-
-# ─── 2. Check disk space ──────────────────────────────────
-echo "💾 Checking available disk space..."
-# NOTE: On macOS, df outputs in 512-byte blocks by default, which causes incorrect calculations.
-# Using df -k outputs in KB (1024-byte blocks), then we convert to bytes for accurate comparison.
-# Without -k, 65 GiB free would incorrectly show as ~130 MB (dividing 512-byte blocks by 1024/1024).
-AVAILABLE_KB=$(df -k "$HOME/Downloads" 2>/dev/null | awk 'NR==2 {print $4}' 2>/dev/null || echo "")
-if [[ -z "$AVAILABLE_KB" ]] || ! [[ "$AVAILABLE_KB" =~ ^[0-9]+$ ]]; then
-  # Fallback to home directory if Downloads check fails
-  AVAILABLE_KB=$(df -k "$HOME" 2>/dev/null | awk 'NR==2 {print $4}' 2>/dev/null || echo "")
-fi
-if [[ -z "$AVAILABLE_KB" ]] || ! [[ "$AVAILABLE_KB" =~ ^[0-9]+$ ]]; then
-  # Fallback to root filesystem if home check fails
-  AVAILABLE_KB=$(df -k "/" 2>/dev/null | awk 'NR==2 {print $4}' 2>/dev/null || echo "")
-fi
-
-if [[ -n "$AVAILABLE_KB" ]] && [[ "$AVAILABLE_KB" =~ ^[0-9]+$ ]]; then
-  AVAILABLE=$((AVAILABLE_KB * 1024))  # Convert KB to bytes
-  AVAILABLE_MB=$((AVAILABLE/1024/1024))
-  [[ $AVAILABLE -gt $REQUIRED_SPACE ]] || { 
-    echo "❌ Insufficient disk space. Need 500MB, have ${AVAILABLE_MB}MB"; 
-    exit 1; 
-  }
-  echo "✅ Sufficient disk space available (${AVAILABLE_MB}MB)"
-else
-  echo "⚠️ Could not determine available disk space. Continuing anyway..."
-fi
 
 # ─── 3. Hardware fingerprint analysis ─────────────────────
 echo "🔍 Analyzing hardware fingerprint..."
@@ -257,6 +247,10 @@ sudo rm -rf /var/folders/*/com.apple.Safari* 2>/dev/null || true
 BROWSER_CACHES=(
   "$HOME/Library/Application Support/Google/Chrome/Default/Cache"
   "$HOME/Library/Application Support/Google/Chrome/Default/Code Cache"
+  "$HOME/Library/Application Support/Microsoft Edge/Default/Cache"
+  "$HOME/Library/Application Support/Microsoft Edge/Default/Code Cache"
+  "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Cache"
+  "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Code Cache"
   "$HOME/Library/Application Support/Mozilla/Firefox/Profiles/*/cache2"
   "$HOME/Library/Safari/LocalStorage"
   "$HOME/Library/Safari/WebpageIcons.db"
@@ -350,35 +344,60 @@ fi
 
 # ─── 15. Download & install Zoom ──────────────────────────
 PKG="$HOME/Downloads/Zoom.pkg"
+INSTALLOMATOR_PKG=""
+USED_INSTALLOMATOR=false
 echo "⬇️ Downloading Zoom from official source..."
 if ! curl -L --fail --silent --show-error --connect-timeout 30 --max-time 300 -o "$PKG" "$ZOOM_URL"; then
-  echo "❌ Download failed. Trying alternative method..."
-  # Try alternative download method
-  if ! curl -L --fail --silent --show-error --connect-timeout 30 --max-time 300 -o "$PKG" "https://cdn.zoom.us/prod/latest/Zoom.pkg"; then
-    echo "❌ All download methods failed. Check network connection."
+  echo "❌ Zoom package download failed. Trying Installomator fallback..."
+  INSTALLOMATOR_PKG="/tmp/Installomator.pkg"
+  if ! curl -L --fail --silent --show-error --connect-timeout 30 --max-time 300 -o "$INSTALLOMATOR_PKG" "$INSTALLOMATOR_URL"; then
+    echo "❌ Failed to download Installomator fallback package."
     exit 1
   fi
+
+  echo "📦 Installing Installomator..."
+  if ! sudo installer -pkg "$INSTALLOMATOR_PKG" -target /; then
+    echo "❌ Installomator installation failed."
+    exit 1
+  fi
+
+  if [[ ! -x "$INSTALLOMATOR_BIN" ]]; then
+    echo "❌ Installomator binary not found at $INSTALLOMATOR_BIN"
+    exit 1
+  fi
+
+  echo "📦 Installing Zoom via Installomator..."
+  if ! sudo "$INSTALLOMATOR_BIN" zoom; then
+    echo "❌ Installomator failed to install Zoom."
+    exit 1
+  fi
+
+  USED_INSTALLOMATOR=true
 fi
 
-# Verify package integrity
-echo "🔍 Verifying package integrity..."
-if ! pkgutil --check-signature "$PKG" >/dev/null 2>&1; then
-  echo "⚠️ Package signature verification failed, but continuing..."
+if ! $USED_INSTALLOMATOR; then
+  # Verify package integrity
+  echo "🔍 Verifying package integrity..."
+  if ! pkgutil --check-signature "$PKG" >/dev/null 2>&1; then
+    echo "⚠️ Package signature verification failed, but continuing..."
+  else
+    echo "✅ Package signature verified"
+  fi
+
+  # Check package size
+  PKG_SIZE=$(stat -f%z "$PKG" 2>/dev/null || stat -c%s "$PKG" 2>/dev/null || echo "0")
+  if [[ $PKG_SIZE -lt 10000000 ]]; then  # Less than 10MB
+    echo "❌ Downloaded package seems too small ($((PKG_SIZE/1024/1024))MB). Corrupted download?"
+    exit 1
+  fi
+
+  echo "📦 Installing Zoom..."
+  if ! sudo installer -pkg "$PKG" -target /; then
+    echo "❌ Installation failed."
+    exit 1
+  fi
 else
-  echo "✅ Package signature verified"
-fi
-
-# Check package size
-PKG_SIZE=$(stat -f%z "$PKG" 2>/dev/null || stat -c%s "$PKG" 2>/dev/null || echo "0")
-if [[ $PKG_SIZE -lt 10000000 ]]; then  # Less than 10MB
-  echo "❌ Downloaded package seems too small ($((PKG_SIZE/1024/1024))MB). Corrupted download?"
-  exit 1
-fi
-
-echo "📦 Installing Zoom..."
-if ! sudo installer -pkg "$PKG" -target /; then
-  echo "❌ Installation failed."
-  exit 1
+  echo "✅ Zoom installed via Installomator fallback"
 fi
 
 # ─── 16. Verify installation ──────────────────────────────
@@ -436,6 +455,9 @@ echo "✅ Hardware protection script created: $PROTECTION_SCRIPT"
 # ─── 19. Cleanup and finalization ───────────────────────
 echo "🧹 Cleaning up..."
 rm -f "$PKG"
+if [[ -n "$INSTALLOMATOR_PKG" ]]; then
+  rm -f "$INSTALLOMATOR_PKG"
+fi
 
 # Show backup location
 if [[ -d "$BACKUP_DIR" ]] && [[ "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]]; then
