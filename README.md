@@ -54,6 +54,19 @@ The script automatically checks for these system tools:
 
 ## 📖 Usage
 
+### Non-Technical Quick Start (Recommended)
+
+1. Open the latest GitHub release for this project.
+2. Download the file named `Zoom-Nuke-macOS-<version>.zip`.
+3. Open the zip, then double-click `Zoom Nuke.app`.
+4. Choose `Standard Clean` or `Deep Clean`.
+5. Click `Start` (or `Cancel` to back out).
+6. Terminal opens automatically and runs the script.
+7. Enter your Mac password when asked.
+8. If macOS blocks it the first time, right-click `Zoom Nuke.app` → **Open** → **Open**.
+
+> The app is the easiest path. A `.command` launcher is still included as a fallback.
+
 ### Basic Usage
 
 ```bash
@@ -254,6 +267,29 @@ This script is part of a larger toolkit. For improvements or bug reports:
 2. Document any changes
 3. Consider backward compatibility
 4. Follow security best practices
+
+## 📦 Release Packaging (Maintainers)
+
+To make releases easier for non-technical users, this repo can generate a ready-to-run zip bundle:
+
+```bash
+./tools/build_release_bundle.sh v3.0.0
+```
+
+This creates `dist/Zoom-Nuke-macOS-v3.0.0.zip` with:
+- `Zoom Nuke.app` (button-based launcher)
+- `Start Zoom Nuke.command` (double-click launcher)
+- `Screw1132_Overkill.sh` (main script)
+- `README.md`
+- `START_HERE.txt`
+
+You can also build only the app:
+
+```bash
+./tools/build_macos_app.sh
+```
+
+There is also a GitHub Actions workflow that auto-builds and uploads this zip when a release is published.
 
 ## 📄 License
 
