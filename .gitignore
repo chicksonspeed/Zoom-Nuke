@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Build output
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/

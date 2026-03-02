@@ -75,9 +75,9 @@ cat > "$INFO_PLIST_PATH" <<EOF
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
+  <string>3.1.1</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>3</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MACOS_MIN_VERSION</string>
   <key>NSHighResolutionCapable</key>

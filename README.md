@@ -255,7 +255,8 @@ If you need to restore data:
 
 ## 📝 Version History
 
-- **v3.0.0**: Current version with enhanced features
+- **v3.1.1**: Current version with polished UI and enhanced features
+- **v3.0.0**: Initial release of the SwiftUI app launcher
 - **v2.x**: Previous versions with basic functionality
 - **v1.x**: Initial releases
 
