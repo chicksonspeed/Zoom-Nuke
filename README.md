@@ -1,4 +1,4 @@
-# 🔥 Screw 1132 Overkill - macOS Zoom Nuke & Reinstall Tool
+# 🔥 macOS Zoom Nuke & Reinstall Tool
 
 > **"Ben from IT" approved Zoom cleanup and reinstallation script for macOS**
 
