@@ -4,7 +4,7 @@
 
 ## 📋 Overview
 
-`zoom_nuke_overkill.sh` is a comprehensive macOS script designed to completely remove Zoom and all associated data, clear hardware fingerprints, spoof network identifiers, and perform a fresh installation. This tool is particularly useful for:
+Zoom Nuke is a comprehensive macOS script designed to completely remove Zoom and all associated data, clear hardware fingerprints, spoof network identifiers, and perform a fresh installation. This tool is particularly useful for:
 
 - **Privacy-conscious users** who want to remove all Zoom tracking data
 - **IT professionals** performing system cleanup
