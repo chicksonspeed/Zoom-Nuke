@@ -8,7 +8,7 @@ trap 'echo "❌ Oops! Something went wrong at line $LINENO. Exiting…"; exit 1'
 
 # Configuration
 LOG="$HOME/zoom_fix.log"
-VERSION="3.1.1"
+VERSION="3.1.3"
 ZOOM_URL="https://zoom.us/client/latest/Zoom.pkg"
 INSTALLOMATOR_URL="https://github.com/Installomator/Installomator/releases/latest/download/Installomator.pkg"
 INSTALLOMATOR_BIN="/usr/local/Installomator/Installomator.sh"

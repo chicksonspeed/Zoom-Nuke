@@ -10,6 +10,8 @@ APP_NAME="Zoom Nuke.app"
 APP_PATH="$OUTPUT_DIR/$APP_NAME"
 APP_SOURCE="$REPO_ROOT/app/ZoomNukeUI.swift"
 MAIN_SCRIPT_SOURCE="$REPO_ROOT/Screw1132_Overkill.sh"
+ICON_NAME="ZoomNuke"
+ICON_SOURCE="$REPO_ROOT/app/${ICON_NAME}.icns"
 EXECUTABLE_NAME="Zoom Nuke"
 EXECUTABLE_PATH="$APP_PATH/Contents/MacOS/$EXECUTABLE_NAME"
 INFO_PLIST_PATH="$APP_PATH/Contents/Info.plist"
@@ -21,7 +23,7 @@ if [[ "$(uname)" != "Darwin" ]]; then
   exit 1
 fi
 
-for required_file in "$APP_SOURCE" "$MAIN_SCRIPT_SOURCE"; do
+for required_file in "$APP_SOURCE" "$MAIN_SCRIPT_SOURCE" "$ICON_SOURCE"; do
   if [[ ! -f "$required_file" ]]; then
     echo "Missing required file: $required_file" >&2
     exit 1
@@ -75,9 +77,11 @@ cat > "$INFO_PLIST_PATH" <<EOF
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>3.1.1</string>
+  <string>3.1.3</string>
   <key>CFBundleVersion</key>
-  <string>3</string>
+  <string>313</string>
+  <key>CFBundleIconFile</key>
+  <string>$ICON_NAME</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MACOS_MIN_VERSION</string>
   <key>NSHighResolutionCapable</key>
@@ -91,6 +95,7 @@ EOF
 printf 'APPL????' > "$PKGINFO_PATH"
 
 cp "$MAIN_SCRIPT_SOURCE" "$APP_PATH/Contents/Resources/Screw1132_Overkill.sh"
+cp "$ICON_SOURCE" "$APP_PATH/Contents/Resources/${ICON_NAME}.icns"
 chmod +x "$APP_PATH/Contents/Resources/Screw1132_Overkill.sh"
 chmod +x "$EXECUTABLE_PATH"
 

@@ -77,13 +77,14 @@ private func applyWindowStyle(_ window: NSWindow, shouldCenter: Bool) {
     window.setContentSize(fixedSize)
     window.minSize = fixedSize
     window.maxSize = fixedSize
-    window.styleMask = [.borderless, .fullSizeContentView]
+    // Keep borderless (prevents native titlebar chrome), but explicitly allow close/minimize.
+    window.styleMask = [.borderless, .closable, .miniaturizable, .fullSizeContentView]
     window.titleVisibility = .hidden
     window.titlebarAppearsTransparent = true
     if #available(macOS 11.0, *) {
         window.titlebarSeparatorStyle = .none
     }
-    window.isMovableByWindowBackground = false
+    window.isMovableByWindowBackground = true
     window.backgroundColor = .clear
     window.isOpaque = false
     window.hasShadow = false
@@ -156,6 +157,8 @@ struct ContentView: View {
     @State private var selectedMode: CleanMode = .standard
     @State private var runState: RunState = .idle
     @State private var status: InlineStatus?
+    @State private var liveLogLine: String?
+    @State private var resolvedWindow: NSWindow?
     @State private var hoverPrimary = false
     @State private var hoverCancel = false
     @State private var completionPollTimer: Timer?
@@ -164,6 +167,8 @@ struct ContentView: View {
     @State private var cancelRequested = false
 
     private static let pollInterval: TimeInterval = 0.8
+    private static let logPollInterval: TimeInterval = 1.2
+    private static let logTailMaxBytes: Int = 4096
 
     var body: some View {
         ZStack {
@@ -172,6 +177,7 @@ struct ContentView: View {
         .background(Color.clear)
         .background(
             WindowAccessor { window in
+                resolvedWindow = window
                 applyWindowStyle(window, shouldCenter: false)
             }
         )
@@ -186,9 +192,8 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 0) {
                     HStack(spacing: 9) {
-                        trafficLight(Color(red: 1.0, green: 0.36, blue: 0.34)) { NSApp.keyWindow?.performClose(nil) }
+                        trafficLight(Color(red: 1.0, green: 0.36, blue: 0.34)) { closeWindow() }
                         trafficLight(Color(red: 0.98, green: 0.75, blue: 0.24)) { NSApp.keyWindow?.miniaturize(nil) }
-                        trafficLight(Color(red: 0.35, green: 0.82, blue: 0.36)) { NSApp.keyWindow?.performZoom(nil) }
                     }
                     .padding(.leading, 14)
                     .padding(.vertical, 11)
@@ -214,6 +219,7 @@ struct ContentView: View {
             modeSection
             runningProgress
             statusBanner
+            liveLogBanner
             actionRow
             footer
         }
@@ -384,17 +390,29 @@ struct ContentView: View {
             .accessibilityLabel(primaryButtonTitle)
             .accessibilityHint("Starts the Zoom cleanup process in Terminal")
 
-            Button(action: cancelOrClose) {
-                Text("Cancel")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Color.white.opacity(hoverCancel ? 0.80 : 0.52))
-                    .frame(height: 38)
+            VStack(spacing: 8) {
+                Button(action: cancelOrClose) {
+                    Text("Cancel")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(Color.white.opacity(hoverCancel ? 0.80 : 0.52))
+                        .frame(height: 22)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+                .onHover { hoverCancel = $0 }
+                .animation(.easeOut(duration: 0.14), value: hoverCancel)
+                .accessibilityLabel(runState == .running ? "Cancel cleanup" : "Close window")
+
+                Button(action: openLogFile) {
+                    Text("Open Log")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(Color.white.opacity(0.65))
+                }
+                .buttonStyle(.plain)
+                .disabled(!FileManager.default.fileExists(atPath: logFilePath))
+                .accessibilityLabel("Open log file")
+                .accessibilityHint("Opens ~/zoom_fix.log")
             }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            .onHover { hoverCancel = $0 }
-            .animation(.easeOut(duration: 0.14), value: hoverCancel)
-            .accessibilityLabel(runState == .running ? "Cancel cleanup" : "Close window")
         }
     }
 
@@ -455,12 +473,13 @@ struct ContentView: View {
         }
 
         cleanupRunArtifacts()
+        liveLogLine = nil
         let artifacts = makeRunArtifacts()
         statusFileURL = artifacts.statusURL
         pidFileURL = artifacts.pidURL
         cancelRequested = false
         runState = .running
-        setStatus("Launching \(selectedMode.title) in Terminal...", kind: .info)
+        setStatus("Launching \(selectedMode.title) in Terminal… enter your password there if prompted.", kind: .info)
 
         let command = terminalCommand(scriptPath: scriptURL.path, statusPath: artifacts.statusURL.path, pidPath: artifacts.pidURL.path)
         guard launchInTerminal(command: command) else {
@@ -470,10 +489,11 @@ struct ContentView: View {
             return
         }
         startCompletionPolling()
+        startLiveLogPolling()
     }
 
     private func cancelOrClose() {
-        if runState == .running { cancelCleanup() } else { NSApp.keyWindow?.performClose(nil) }
+        if runState == .running { cancelCleanup() } else { closeWindow() }
     }
 
     private func cancelCleanup() {
@@ -600,6 +620,7 @@ struct ContentView: View {
         if let pidFileURL { try? FileManager.default.removeItem(at: pidFileURL) }
         statusFileURL = nil
         pidFileURL = nil
+        liveLogLine = nil
     }
 
     private func shellQuote(_ value: String) -> String {
@@ -613,6 +634,73 @@ struct ContentView: View {
             .replacingOccurrences(of: "\n", with: "\\n")
             .replacingOccurrences(of: "\r", with: "\\r")
             .replacingOccurrences(of: "\t", with: "\\t")
+    }
+
+    private var logFilePath: String { (NSHomeDirectory() as NSString).appendingPathComponent("zoom_fix.log") }
+
+    @ViewBuilder
+    private var liveLogBanner: some View {
+        if runState == .running, let liveLogLine, !liveLogLine.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: "text.alignleft")
+                Text(liveLogLine)
+                    .lineLimit(2)
+            }
+            .font(.system(size: 11, weight: .regular))
+            .foregroundColor(Color.white.opacity(0.55))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.04)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.08), lineWidth: 0.75))
+            .transition(.opacity)
+            .accessibilityLabel("Latest log output")
+        }
+    }
+
+    private func startLiveLogPolling() {
+        Timer.scheduledTimer(withTimeInterval: Self.logPollInterval, repeats: true) { timer in
+            guard self.runState == .running else {
+                timer.invalidate()
+                return
+            }
+            self.refreshLiveLogLine()
+        }
+    }
+
+    private func refreshLiveLogLine() {
+        let url = URL(fileURLWithPath: logFilePath)
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+        defer { try? handle.close() }
+
+        let data = (try? handle.readToEnd()) ?? Data()
+        if data.isEmpty { return }
+        let tail = data.suffix(Self.logTailMaxBytes)
+        guard let text = String(data: tail, encoding: .utf8) else { return }
+        let lines = text
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard let last = lines.last else { return }
+
+        if last != liveLogLine {
+            withAnimation(.easeInOut(duration: 0.12)) {
+                liveLogLine = last
+            }
+        }
+    }
+
+    private func openLogFile() {
+        let url = URL(fileURLWithPath: logFilePath)
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    private func closeWindow() {
+        if let resolvedWindow {
+            resolvedWindow.close()
+        } else {
+            NSApp.terminate(nil)
+        }
     }
 }
 
