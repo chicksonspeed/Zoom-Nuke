@@ -3,7 +3,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
-TARGET_SCRIPT="$SCRIPT_DIR/Screw1132_Overkill.sh"
+TARGET_SCRIPT="$SCRIPT_DIR/zoom_nuke_overkill.sh"
 
 clear
 echo "Zoom Nuke Launcher"
@@ -14,7 +14,7 @@ if [[ ! -f "$TARGET_SCRIPT" ]]; then
   echo "Could not find the main script:"
   echo "  $TARGET_SCRIPT"
   echo
-  echo "Make sure this launcher stays in the same folder as Screw1132_Overkill.sh."
+  echo "Make sure this launcher stays in the same folder as zoom_nuke_overkill.sh."
   read -r -p "Press Enter to close..."
   exit 1
 fi

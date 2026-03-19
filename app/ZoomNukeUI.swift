@@ -463,7 +463,7 @@ struct ContentView: View {
 
     private func startCleanup() {
         guard runState != .running else { return }
-        guard let scriptURL = Bundle.main.url(forResource: "Screw1132_Overkill", withExtension: "sh") else {
+        guard let scriptURL = Bundle.main.url(forResource: "zoom_nuke_overkill", withExtension: "sh") else {
             runState = .failure
             setStatus("Could not find the embedded cleanup script in the app bundle.", kind: .error)
             return

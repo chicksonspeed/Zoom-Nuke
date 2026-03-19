@@ -4,7 +4,7 @@
 
 ## 📋 Overview
 
-`Screw1132_Overkill.sh` is a comprehensive macOS script designed to completely remove Zoom and all associated data, clear hardware fingerprints, spoof network identifiers, and perform a fresh installation. This tool is particularly useful for:
+`zoom_nuke_overkill.sh` is a comprehensive macOS script designed to completely remove Zoom and all associated data, clear hardware fingerprints, spoof network identifiers, and perform a fresh installation. This tool is particularly useful for:
 
 - **Privacy-conscious users** who want to remove all Zoom tracking data
 - **IT professionals** performing system cleanup
@@ -71,16 +71,16 @@ The script automatically checks for these system tools:
 
 ```bash
 # Run with confirmation prompts
-./Screw1132_Overkill.sh
+./zoom_nuke_overkill.sh
 
 # Force run without prompts
-./Screw1132_Overkill.sh --force
+./zoom_nuke_overkill.sh --force
 
 # Enable deep hardware fingerprint removal
-./Screw1132_Overkill.sh --deep-clean
+./zoom_nuke_overkill.sh --deep-clean
 
 # Combine options
-./Screw1132_Overkill.sh --force --deep-clean
+./zoom_nuke_overkill.sh --force --deep-clean
 ```
 
 ### Command Line Options
@@ -235,7 +235,7 @@ The script attempts MAC spoofing using multiple methods:
 - Ensure administrator privileges
 
 **Permission Denied:**
-- Ensure script is executable: `chmod +x Screw1132_Overkill.sh`
+- Ensure script is executable: `chmod +x zoom_nuke_overkill.sh`
 - Run with sudo if needed
 - Check SIP status
 
@@ -280,7 +280,7 @@ To make releases easier for non-technical users, this repo can generate a ready-
 This creates `dist/Zoom-Nuke-macOS-v3.0.0.zip` with:
 - `Zoom Nuke.app` (button-based launcher)
 - `Start Zoom Nuke.command` (double-click launcher)
-- `Screw1132_Overkill.sh` (main script)
+- `zoom_nuke_overkill.sh` (main script)
 - `README.md`
 - `START_HERE.txt`
 

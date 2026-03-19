@@ -9,7 +9,7 @@ OUTPUT_DIR="${1:-$REPO_ROOT/dist}"
 APP_NAME="Zoom Nuke.app"
 APP_PATH="$OUTPUT_DIR/$APP_NAME"
 APP_SOURCE="$REPO_ROOT/app/ZoomNukeUI.swift"
-MAIN_SCRIPT_SOURCE="$REPO_ROOT/Screw1132_Overkill.sh"
+MAIN_SCRIPT_SOURCE="$REPO_ROOT/zoom_nuke_overkill.sh"
 ICON_NAME="ZoomNuke"
 ICON_SOURCE="$REPO_ROOT/app/${ICON_NAME}.icns"
 EXECUTABLE_NAME="Zoom Nuke"
@@ -77,9 +77,9 @@ cat > "$INFO_PLIST_PATH" <<EOF
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>3.1.3</string>
+  <string>3.1.4</string>
   <key>CFBundleVersion</key>
-  <string>313</string>
+  <string>314</string>
   <key>CFBundleIconFile</key>
   <string>$ICON_NAME</string>
   <key>LSMinimumSystemVersion</key>
@@ -94,9 +94,9 @@ EOF
 
 printf 'APPL????' > "$PKGINFO_PATH"
 
-cp "$MAIN_SCRIPT_SOURCE" "$APP_PATH/Contents/Resources/Screw1132_Overkill.sh"
+cp "$MAIN_SCRIPT_SOURCE" "$APP_PATH/Contents/Resources/zoom_nuke_overkill.sh"
 cp "$ICON_SOURCE" "$APP_PATH/Contents/Resources/${ICON_NAME}.icns"
-chmod +x "$APP_PATH/Contents/Resources/Screw1132_Overkill.sh"
+chmod +x "$APP_PATH/Contents/Resources/zoom_nuke_overkill.sh"
 chmod +x "$EXECUTABLE_PATH"
 
 if command -v codesign >/dev/null 2>&1; then

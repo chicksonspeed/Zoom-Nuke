@@ -8,12 +8,22 @@ trap 'echo "❌ Oops! Something went wrong at line $LINENO. Exiting…"; exit 1'
 
 # Configuration
 LOG="$HOME/zoom_fix.log"
-VERSION="3.1.3"
+VERSION="3.1.4"
 ZOOM_URL="https://zoom.us/client/latest/Zoom.pkg"
 INSTALLOMATOR_URL="https://github.com/Installomator/Installomator/releases/latest/download/Installomator.pkg"
 INSTALLOMATOR_BIN="/usr/local/Installomator/Installomator.sh"
 BACKUP_DIR="$HOME/.zoom_backup_$(date +%Y%m%d_%H%M%S)"
 MIN_MACOS_VERSION="10.15.0"
+
+# Locate repository tools directory for auxiliary modules.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+TOOLS_DIR="$SCRIPT_DIR/tools"
+MAC_SPOOF_LIB="$TOOLS_DIR/mac_spoof.sh"
+
+if [[ -f "$MAC_SPOOF_LIB" ]]; then
+  # shellcheck source=/dev/null
+  . "$MAC_SPOOF_LIB"
+fi
 
 # Logging setup
 exec > >(tee -i "$LOG") 2>&1
@@ -173,48 +183,20 @@ fi
 
 # ─── 9. Enhanced MAC spoofing ────────────────────────────
 echo "🔧 Attempting MAC address spoofing..."
-ORIG_MAC=$(ifconfig "$IF" | awk '/ether/ {print $2}')
-BACKUP="$HOME/.orig_mac_backup"
-[[ -f $BACKUP ]] || echo "$ORIG_MAC" > "$BACKUP"
-
-# Generate locally-administered MAC (02:xx:xx:xx:xx:xx)
-NEW_MAC=$(printf '02:%02x:%02x:%02x:%02x:%02x' \
-  $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) \
-  $((RANDOM%256)) $((RANDOM%256)))
-
-echo "🔧 Spoofing MAC: $ORIG_MAC → $NEW_MAC"
-
-# Try multiple methods for MAC spoofing
 MAC_SPOOFED=false
 
-# Method 1: Standard ifconfig
-if sudo ifconfig "$IF" ether "$NEW_MAC" 2>/dev/null; then
-  echo "✅ MAC spoofed via 'ether' syntax"
-  MAC_SPOOFED=true
-# Method 2: lladdr syntax
-elif sudo ifconfig "$IF" lladdr "$NEW_MAC" 2>/dev/null; then
-  echo "✅ MAC spoofed via 'lladdr' syntax"
-  MAC_SPOOFED=true
-# Method 3: Try with interface down/up (for some systems)
-elif [[ "$INTERFACE_TYPE" == "Ethernet" ]]; then
-  echo "🔄 Trying interface restart method..."
-  sudo ifconfig "$IF" down 2>/dev/null
-  sleep 1
-  sudo ifconfig "$IF" ether "$NEW_MAC" 2>/dev/null
-  sudo ifconfig "$IF" up 2>/dev/null
-  sleep 2
-  if [[ "$(ifconfig "$IF" | awk '/ether/ {print $2}')" == "$NEW_MAC" ]]; then
-    echo "✅ MAC spoofed via restart method"
-    MAC_SPOOFED=true
+if command -v spoof_mac_address >/dev/null 2>&1; then
+  spoof_mac_address "$IF" "$INTERFACE_TYPE" || true
+  if ! $MAC_SPOOFED; then
+    echo "⚠️ Failed to spoof MAC on $IF. This is common on modern macOS:"
+    echo "   • Private Wi-Fi Address enabled"
+    echo "   • System Integrity Protection (SIP) active"
+    echo "   • Network interface restrictions"
+    [[ -n "${MAC_SPOOF_REASON:-}" ]] && echo "   Reason: $MAC_SPOOF_REASON"
+    echo "   Continuing with other cleanup methods..."
   fi
-fi
-
-if ! $MAC_SPOOFED; then
-  echo "⚠️ Failed to spoof MAC. This is normal on modern macOS with:"
-  echo "   • Private Wi-Fi Address enabled"
-  echo "   • System Integrity Protection (SIP) active"
-  echo "   • Network interface restrictions"
-  echo "   Continuing with other cleanup methods..."
+else
+  echo "⚠️ MAC spoofing module not available; skipping MAC spoof step."
 fi
 
 # ─── 10. Hardware fingerprint removal ─────────────────────
@@ -504,3 +486,4 @@ if ! $FORCE; then
     "$PROTECTION_SCRIPT" &
   fi
 fi
+

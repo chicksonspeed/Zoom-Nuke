@@ -19,7 +19,8 @@ ARCHIVE_NAME="Zoom-Nuke-macOS${VERSION_SUFFIX}.zip"
 ARCHIVE_PATH="$DIST_DIR/$ARCHIVE_NAME"
 
 REQUIRED_FILES=(
-  "$REPO_ROOT/Screw1132_Overkill.sh"
+  "$REPO_ROOT/zoom_nuke_overkill.sh"
+  "$REPO_ROOT/zoom_nuke.sh"
   "$REPO_ROOT/Start Zoom Nuke.command"
   "$REPO_ROOT/README.md"
   "$APP_BUILDER"
@@ -49,7 +50,8 @@ trap cleanup EXIT
 mkdir -p "$STAGE_DIR/$BUNDLE_ROOT"
 
 bash "$APP_BUILDER" "$STAGE_DIR/$BUNDLE_ROOT"
-cp "$REPO_ROOT/Screw1132_Overkill.sh" "$STAGE_DIR/$BUNDLE_ROOT/"
+cp "$REPO_ROOT/zoom_nuke_overkill.sh" "$STAGE_DIR/$BUNDLE_ROOT/"
+cp "$REPO_ROOT/zoom_nuke.sh" "$STAGE_DIR/$BUNDLE_ROOT/"
 cp "$REPO_ROOT/Start Zoom Nuke.command" "$STAGE_DIR/$BUNDLE_ROOT/"
 cp "$REPO_ROOT/README.md" "$STAGE_DIR/$BUNDLE_ROOT/"
 
@@ -73,7 +75,8 @@ Notes:
 - A full log is saved to: ~/zoom_fix.log
 EOF
 
-chmod +x "$STAGE_DIR/$BUNDLE_ROOT/Screw1132_Overkill.sh"
+chmod +x "$STAGE_DIR/$BUNDLE_ROOT/zoom_nuke_overkill.sh"
+chmod +x "$STAGE_DIR/$BUNDLE_ROOT/zoom_nuke.sh"
 chmod +x "$STAGE_DIR/$BUNDLE_ROOT/Start Zoom Nuke.command"
 
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$STAGE_DIR/$BUNDLE_ROOT" "$ARCHIVE_PATH"
