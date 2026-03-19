@@ -8,7 +8,7 @@ trap 'echo "❌ Oops! Something went wrong at line $LINENO. Exiting…"; exit 1'
 
 # Configuration
 LOG="$HOME/zoom_fix.log"
-VERSION="3.1.4"
+VERSION="3.1.5"
 ZOOM_URL="https://zoom.us/client/latest/Zoom.pkg"
 INSTALLOMATOR_URL="https://github.com/Installomator/Installomator/releases/latest/download/Installomator.pkg"
 INSTALLOMATOR_BIN="/usr/local/Installomator/Installomator.sh"
@@ -221,8 +221,16 @@ done
 # Clear additional system identifiers
 echo "🔧 Clearing system identifiers..."
 sudo rm -rf /var/folders/*/com.apple.dt.Xcode/* 2>/dev/null || true
-sudo rm -rf /var/folders/*/com.apple.WebKit* 2>/dev/null || true
-sudo rm -rf /var/folders/*/com.apple.Safari* 2>/dev/null || true
+if $DEEP_CLEAN; then
+  # Avoid wiping WebKit/Safari unless the user explicitly asked for deep-clean.
+  WEBKIT_MATCHES=$( (ls -d /var/folders/*/com.apple.WebKit* 2>/dev/null || true) | wc -l | tr -d ' ' )
+  SAFARI_MATCHES=$( (ls -d /var/folders/*/com.apple.Safari* 2>/dev/null || true) | wc -l | tr -d ' ' )
+  echo "🧹 Deep clean: WebKit cache matches=$WEBKIT_MATCHES, Safari cache matches=$SAFARI_MATCHES"
+  sudo rm -rf /var/folders/*/com.apple.WebKit* 2>/dev/null || true
+  sudo rm -rf /var/folders/*/com.apple.Safari* 2>/dev/null || true
+else
+  echo "ℹ️ Standard clean: skipping WebKit/Safari cache wipes (/var/folders/com.apple.WebKit*, /var/folders/com.apple.Safari*)."
+fi
 
 # Clear browser fingerprints
 BROWSER_CACHES=(
@@ -482,8 +490,20 @@ echo "💡 Use the protection script: $PROTECTION_SCRIPT"
 if ! $FORCE; then
   read -p "🚀 Launch Zoom with protection? (y/n): " launch_ans
   if [[ $launch_ans == [Yy] ]]; then
-    echo "🚀 Launching Zoom with hardware protection..."
-    "$PROTECTION_SCRIPT" &
+    echo "🚀 Launching Zoom with hardware protection (detached; ignore hangup)..."
+    nohup "$PROTECTION_SCRIPT" >>"$LOG" 2>&1 &
+    ZOOM_LAUNCH_PID=$!
+    echo "✅ Zoom launch requested; detached PID: $ZOOM_LAUNCH_PID"
+
+    # Lightweight readiness check + logging (best-effort).
+    sleep 2
+    if [[ -x "/Applications/zoom.us.app/Contents/MacOS/zoom.us" ]]; then
+      echo "🔎 Verified zoom executable exists."
+    else
+      echo "⚠️ zoom executable not found at expected path."
+    fi
+    echo "🔎 zoom.us processes (pgrep):"
+    pgrep -fl 'zoom\.us' 2>/dev/null || echo "ℹ️ No zoom.us process detected yet."
   fi
 fi
 

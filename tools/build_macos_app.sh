@@ -77,9 +77,9 @@ cat > "$INFO_PLIST_PATH" <<EOF
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>3.1.4</string>
+  <string>3.1.5</string>
   <key>CFBundleVersion</key>
-  <string>314</string>
+  <string>315</string>
   <key>CFBundleIconFile</key>
   <string>$ICON_NAME</string>
   <key>LSMinimumSystemVersion</key>
