@@ -1,6 +1,24 @@
-# 🔥 macOS Zoom Nuke & Reinstall Tool
+<h1 align="center">💣 Zoom Nuke</h1>
 
-> **"Ben from IT" approved Zoom cleanup and reinstallation script for macOS**
+<p align="center">
+  🔥 macOS Zoom Nuke & Reinstall Tool. 
+  </p>
+
+<p align="center">
+"Ben from IT" approved Zoom cleanup and reinstallation script for macOS.
+  </p>
+<p align="center">
+  <img src="assets/zoom-nuke.jpg" width="800">
+</p>
+
+<p align="center">
+  <a href="https://github.com/chicksonspeed/Zoom-Nuke/releases">
+    <img src="https://img.shields.io/github/v/release/chicksonspeed/Zoom-Nuke?style=for-the-badge">
+  </a>
+  <img src="https://img.shields.io/badge/platform-macOS-blue?style=for-the-badge">
+  <img src="https://img.shields.io/github/downloads/chicksonspeed/Zoom-Nuke/total?style=for-the-badge">
+</p>
+
 
 ## 📋 Overview
 
@@ -63,8 +81,14 @@ The script automatically checks for these system tools:
 5. Click `Start` (or `Cancel` to back out).
 6. Terminal opens automatically and runs the script.
 7. Enter your Mac password when asked.
-8. If macOS blocks it the first time, right-click `Zoom Nuke.app` → **Open** → **Open**.
 
+If macOS blocks the app:
+
+1. Try to open it once (it will fail)
+2. Go to **System Settings → Privacy & Security**
+3. Scroll down to **Security**
+4. Click **Open Anyway** next to "Zoom Nuke.app"
+5. Confirm **Open**
 > The app is the easiest path. A `.command` launcher is still included as a fallback.
 
 ### Basic Usage
