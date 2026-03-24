@@ -18,7 +18,9 @@
   <img src="https://img.shields.io/badge/platform-macOS-blue?style=for-the-badge">
   <img src="https://img.shields.io/github/downloads/chicksonspeed/Zoom-Nuke/total?style=for-the-badge">
 </p>
-
+<p align="center">
+  <img src="assets/zoom-nuke-app.png"">
+</p>
 
 ## 📋 Overview
 
@@ -30,10 +32,6 @@ Zoom Nuke is a comprehensive macOS script designed to completely remove Zoom and
 - **Security researchers** testing Zoom's data persistence
 
 ## 🚀 Features
-
-<p align="center">
-  <img src="assets/zoom-nuke-app.png"">
-</p>
 
 ### Core Functionality
 - **Complete Zoom Removal**: Kills all processes and removes app + all user data
