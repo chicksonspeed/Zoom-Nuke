@@ -3,12 +3,15 @@
 <p align="center">
   🔥 macOS Zoom Nuke & Reinstall Tool. 
   </p>
+  
 
 <p align="center">
 "Ben from IT" approved Zoom cleanup and reinstallation script for macOS.
   </p>
+
 <p align="center">
-  <img src="assets/zoom-nuke.jpg" width="800">
+  <img src="assets/zoom-nuke.jpg" width="48%" />
+  <img src="assets/zoom-nuke-app.png" width="48%" />
 </p>
 
 <p align="center">
@@ -17,9 +20,6 @@
   </a>
   <img src="https://img.shields.io/badge/platform-macOS-blue?style=for-the-badge">
   <img src="https://img.shields.io/github/downloads/chicksonspeed/Zoom-Nuke/total?style=for-the-badge">
-</p>
-<p align="center">
-  <img src="assets/zoom-nuke-app.png"">
 </p>
 
 ## 📋 Overview
