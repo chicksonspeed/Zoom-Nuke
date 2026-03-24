@@ -31,6 +31,10 @@ Zoom Nuke is a comprehensive macOS script designed to completely remove Zoom and
 
 ## 🚀 Features
 
+<p align="center">
+  <img src="assets/zoom-nuke-app.png"">
+</p>
+
 ### Core Functionality
 - **Complete Zoom Removal**: Kills all processes and removes app + all user data
 - **Hardware Fingerprint Clearing**: Removes system identifiers and caches
