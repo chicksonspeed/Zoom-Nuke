@@ -1,0 +1,68 @@
+name: PR Validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get install -y shellcheck
+
+      - name: Lint shell scripts
+        run: |
+          shellcheck --severity=warning \
+            zoom_nuke.sh \
+            zoom_nuke_overkill.sh \
+            "Start Zoom Nuke.command" \
+            tools/_zoom_core.sh \
+            tools/mac_spoof.sh \
+            tools/zoom_protection.sh \
+            tools/build_macos_app.sh \
+            tools/build_release_bundle.sh \
+            tools/build_pkg_installer.sh \
+            tools/preflight_check.sh \
+            tools/validate.sh
+
+  build-swift:
+    name: Build macOS app
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Build Swift app (SPM)
+        run: |
+          swift build 2>&1
+          echo "✅ Swift build succeeded"
+
+  validate:
+    name: Dry-run & structure validation
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run validation suite
+        run: |
+          chmod +x tools/validate.sh
+          ./tools/validate.sh --verbose
+
+  preflight:
+    name: Preflight environment check
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run preflight check
+        # exit 2 (degraded mode) is expected and acceptable in CI.
+        run: |
+          chmod +x tools/preflight_check.sh
+          ./tools/preflight_check.sh || [[ $? -eq 2 ]]
