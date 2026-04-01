@@ -228,7 +228,7 @@ fi
 # ---------------------------------------------------------------------------
 # In JSON mode all human-readable output goes to stderr so stdout contains
 # only the machine-readable JSON object.
-_out() { $JSON_MODE && printf "%s" "$*" >&2 || printf "%s" "$*"; }
+_out() { $JSON_MODE && printf "%b" "$*" >&2 || printf "%b" "$*"; }
 _out ""$'\n'
 if [[ $HARD_FAIL -eq 1 ]]; then
   _out "${_BOLD}${_RED}PREFLIGHT RESULT: BLOCKED${_RESET}"$'\n'
