@@ -15,14 +15,30 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Build user-friendly release bundle
+      - name: Run validation suite
+        run: |
+          chmod +x tools/validate.sh
+          ./tools/validate.sh
+
+      - name: Build user-friendly release bundle (.zip)
         run: |
           chmod +x "tools/build_macos_app.sh"
           chmod +x "tools/build_release_bundle.sh"
           ./tools/build_release_bundle.sh "${{ github.event.release.tag_name }}"
 
-      - name: Upload bundle to release assets
+      - name: Build .pkg installer
+        # build_release_bundle.sh copies "Zoom Nuke.app" into dist/ so it
+        # persists after the staging temp dir is cleaned up. APP_BUNDLE_DIR
+        # must point to the directory *containing* "Zoom Nuke.app", i.e. dist/.
+        run: |
+          chmod +x "tools/build_pkg_installer.sh"
+          APP_BUNDLE_DIR=dist \
+            ./tools/build_pkg_installer.sh "${{ github.event.release.tag_name }}"
+
+      - name: Upload assets to release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.zip
+          files: |
+            dist/*.zip
+            dist/*.pkg
           overwrite_files: true

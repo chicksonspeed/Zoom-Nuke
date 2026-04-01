@@ -1,144 +1,105 @@
 #!/usr/bin/env bash
-# ──────────────────────────────────────────────────────────
-# 🔥 zoom_fix.sh: macOS Zoom Nuke & Reinstall with Ben from IT 🔥
-# ──────────────────────────────────────────────────────────
+# zoom_nuke.sh — macOS Zoom Nuke & Reinstall (simple edition)
+#
+# A streamlined wrapper around the shared _zoom_core.sh library.
+# For advanced options (deep-clean, dry-run, restore, audit) use
+# zoom_nuke_overkill.sh instead.
+#
+# Usage: zoom_nuke.sh [-f|--force] [-v|--version] [-h|--help]
 
 set -Eeuo pipefail
-trap 'echo "❌ Oops! Something went wrong at line $LINENO. Exiting…"; exit 1' ERR
 
+# ---------------------------------------------------------------------------
+# Bootstrap
+# ---------------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+TOOLS_DIR="$SCRIPT_DIR/tools"
+CORE_LIB="$TOOLS_DIR/_zoom_core.sh"
+MAC_SPOOF_LIB="$TOOLS_DIR/mac_spoof.sh"
 LOG="$HOME/zoom_fix.log"
-exec > >(tee -i "$LOG") 2>&1
 
-USAGE="Usage: $0 [-f|--force]"
-
-# ─── 0. Parse flags ───────────────────────────────────────
-FORCE=false
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    -f|--force) FORCE=true; shift ;;
-    *) echo "$USAGE"; exit 1 ;;
-  esac
-done
-
-# ─── 1. Ensure macOS & deps ──────────────────────────────
-[[ "$(uname)" == "Darwin" ]] || { echo "❌ Only macOS supported."; exit 1; }
-for cmd in sudo curl openssl networksetup pkgutil; do
-  command -v "$cmd" &>/dev/null || { echo "❌ Missing $cmd."; exit 1; }
-done
-
-# ─── 2. Detect primary interface ─────────────────────────
-if networksetup -listallhardwareports | grep -q "Wi-Fi"; then
-  IF=$(networksetup -listallhardwareports \
-       | awk '/Wi-Fi/{getline; print $2}')
+# Both libraries are mandatory: mac_spoof.sh owns version_to_number, which
+# _zoom_core.sh calls unconditionally inside core_check_requirements(). A
+# missing file is a hard error — silently skipping it causes a later crash.
+if [[ -f "$MAC_SPOOF_LIB" ]]; then
+  # shellcheck source=/dev/null
+  . "$MAC_SPOOF_LIB"
 else
-  IF=$(networksetup -listallhardwareports \
-       | awk '/Device/ {print $2}' | grep '^en' | head -n1)
-fi
-[[ -n "$IF" ]] || { echo "❌ Could not find any en* interface."; exit 1; }
-echo "✅ Interface: $IF"
-
-# ─── 3. Optional confirm ──────────────────────────────────
-if ! $FORCE; then
-  read -p "🗑️ Delete Zoom & data? (y/n): " ans
-  [[ $ans == [Yy] ]] || { echo "❌ Aborted."; exit 1; }
+  echo "❌ Required library not found: $MAC_SPOOF_LIB" >&2
+  exit 1
 fi
 
-# ─── 4. Kill & uninstall Zoom ────────────────────────────
-echo "🚀 Killing Zoom…"
-killall zoom.us Zoom zoom 2>/dev/null || true; sleep 2
-
-echo "🧹 Removing app + prefs…"
-sudo rm -rf /Applications/zoom.us.app
-rm -rf \
-  "$HOME/Library/Application Support/zoom.us" \
-  "$HOME/Library/Caches/us.zoom.xos" \
-  "$HOME/Library/Preferences/us.zoom.xos.plist" \
-  "$HOME/Library/Logs/zoom.us" \
-  "$HOME/Library/LaunchAgents/us.zoom.xos.plist" \
-  "$HOME/Library/Preferences/zoom.us.conf" \
-  "$HOME/Library/Containers/us.zoom.xos" \
-  "$HOME/Library/Saved Application State/us.zoom.xos.savedState"
-
-# ─── 5. NSYNC send-off ────────────────────────────────────
-echo "🎵 I just wanna tell you that I've had enough"; sleep 1
-echo "🎶 It might sound crazy, but it ain't no lie";      sleep 1
-echo "🎵 Baby, bye, bye, bye";                          sleep 1
-echo "✅ Zoom deleted."
-
-# ─── 6. Forget pkg receipts & Homebrew ────────────────────
-ZOOM_PKG=$(pkgutil --pkgs | grep -i zoom | head -n1 || true)
-[[ -n "$ZOOM_PKG" ]] && sudo pkgutil --forget "$ZOOM_PKG" || true
-
-if command -v brew &>/dev/null; then
-  CASK=$(brew list --cask 2>/dev/null | grep -i zoom || true)
-  [[ -n "$CASK" ]] && brew uninstall --cask "$CASK"
-fi
-
-# ─── 7. Spoof MAC (try multiple syntaxes, no down/up) ──────
-ORIG_MAC=$(ifconfig "$IF" | awk '/ether/ {print $2}')
-BACKUP="$HOME/.orig_mac_backup"
-[[ -f $BACKUP ]] || echo "$ORIG_MAC" > "$BACKUP"
-
-# Locally-administered MAC (02:xx:xx:xx:xx:xx)
-NEW_MAC=$(printf '02:%02x:%02x:%02x:%02x:%02x' \
-  $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) \
-  $((RANDOM%256)) $((RANDOM%256)))
-
-echo "🔧 Spoofing MAC: $ORIG_MAC → $NEW_MAC"
-
-if sudo ifconfig "$IF" ether "$NEW_MAC" 2>/dev/null; then
-  echo "✅ MAC spoofed via ‘ether’ syntax"
-elif sudo ifconfig "$IF" lladdr "$NEW_MAC" 2>/dev/null; then
-  echo "✅ MAC spoofed via ‘lladdr’ syntax"
+if [[ -f "$CORE_LIB" ]]; then
+  # shellcheck source=/dev/null
+  . "$CORE_LIB"
 else
-  echo "⚠️ Failed to spoof MAC. If you’re on Wi-Fi, check your “Private Wi-Fi Address” setting in System Settings → Wi-Fi → Advanced and try disabling it, or test on a wired interface."
+  echo "❌ Required library not found: $CORE_LIB" >&2
+  exit 1
 fi
 
-# ─── 8. Flush DNS ────────────────────────────────────────
-echo "🌐 Flushing DNS…"
-sudo dscacheutil -flushcache
-sudo killall -HUP mDNSResponder || true
+trap 'echo "❌ Something went wrong at line $LINENO (exit $?). Exiting…"; exit 1' ERR
 
-# ─── 9. Restart network ──────────────────────────────────
-# Skip the first “asterisk” note and any disabled (*) services
-SERV=$(networksetup -listallnetworkservices \
-       | tail -n +2 \
-       | grep -v '^\*' \
-       | head -n1)
-
-if [[ -n "$SERV" ]]; then
-  echo "🔄 Restarting network service: $SERV"
-  sudo networksetup -setnetworkserviceenabled "$SERV" off
-  sleep 2
-  sudo networksetup -setnetworkserviceenabled "$SERV" on
-  echo "✅ Network restarted"
+# ---------------------------------------------------------------------------
+# Version
+# ---------------------------------------------------------------------------
+if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
+  VERSION="$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")"
 else
-  echo "⚠️ No active network service found; skipping restart"
+  VERSION="unknown"
 fi
 
-# ─── 10. Bong (optional) break ─────────────────────────────
-echo "💨 Quick bong break…"; sleep 3
+USAGE="Usage: $0 [-f|--force] [-v|--version] [-h|--help]"
 
-# ─── 11. Download & install Zoom ──────────────────────────
-PKG="$HOME/Downloads/Zoom.pkg"
-echo "⬇️ Downloading Zoom…"
-curl -L --fail --silent --show-error -o "$PKG" "https://zoom.us/client/latest/Zoom.pkg" \
-  || { echo "❌ Download failed."; exit 1; }
+# ---------------------------------------------------------------------------
+# main()
+# ---------------------------------------------------------------------------
+main() {
+  # FORCE is consumed by core_confirm() in the sourced _zoom_core.sh library.
+  # shellcheck disable=SC2034
+  FORCE=false
+  # shellcheck disable=SC2034
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -f|--force)   FORCE=true; shift ;;
+      -v|--version) echo "zoom_nuke.sh v$VERSION"; exit 0 ;;
+      -h|--help)    echo "$USAGE"; exit 0 ;;
+      *) echo "Unknown option: $1"; echo "$USAGE"; exit 1 ;;
+    esac
+  done
 
-echo "📦 Installing…"
-sudo installer -pkg "$PKG" -target / || { echo "❌ Installer failed."; exit 1; }
+  # Logging — after flag parsing so --version/--help skip it.
+  exec > >(tee -i "$LOG") 2>&1
+  echo "zoom_nuke.sh v$VERSION — $(date)"
 
-# ─── 12. Wipe residual data files ─────────────────────────
-DATA="$HOME/Library/Application Support/zoom.us/data"
-for f in viper.ini zoomus.enc.db zoommeeting.enc.db; do
-  [[ -f "$DATA/$f" ]] && {
-    echo "⚠️ Wiping $f"
-    : > "$DATA/$f"
-    chmod 400 "$DATA/$f"
-  }
-done
+  core_check_requirements          # sets MACOS_VERSION; exits on failure
+  core_detect_interface            # sets IF, INTERFACE_TYPE
 
-# ─── 13. Cleanup installer & finish ───────────────────────
-rm -f "$PKG"
-echo "🎉 All done, babe! Details in $LOG."
+  # Simple edition: a minimal backup dir (no hardware fingerprint snapshot).
+  BACKUP_DIR=$(mktemp -d "$HOME/.zoomback.XXXXXXXX")
 
+  core_confirm                     # asks "Proceed? (y/n)" unless FORCE=true
+
+  check_cancel
+  core_kill_zoom
+  core_remove_zoom_data            # check_cancel inside each loop iteration
+
+  echo "✅ Zoom deleted."
+
+  core_forget_receipts
+  core_spoof_mac
+  core_flush_dns
+  core_restart_network
+
+  echo "💨 Quick break…"; sleep 2
+
+  core_download_and_install_zoom
+  core_wipe_residual_data
+
+  echo ""
+  echo "🎉 All done! Details in $LOG."
+  if [[ -d "$BACKUP_DIR" ]]; then
+    echo "   Backup at: $BACKUP_DIR"
+  fi
+}
+
+main "$@"

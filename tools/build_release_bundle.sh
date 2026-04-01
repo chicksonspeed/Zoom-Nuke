@@ -24,6 +24,7 @@ REQUIRED_FILES=(
   "$REPO_ROOT/Start Zoom Nuke.command"
   "$REPO_ROOT/README.md"
   "$APP_BUILDER"
+  "$REPO_ROOT/tools/preflight_check.sh"
 )
 
 for required_file in "${REQUIRED_FILES[@]}"; do
@@ -60,26 +61,52 @@ Zoom Nuke - Quick Start
 =======================
 
 1) Double-click "Zoom Nuke.app"
-2) Choose:
-   - Standard Clean (normal cleanup)
-   - Deep Clean (more aggressive cleanup)
-3) Click Start to open Terminal and run the script
-4) Enter your Mac password when asked
-5) If macOS blocks opening:
-   - Right-click the file
-   - Click Open
-   - Click Open again in the prompt
+2) Choose Standard Clean or Deep Clean.
+3) Click "Run Cleanup" and enter your Mac password when prompted.
+4) Live output streams directly in the app window.
 
-Notes:
-- "Start Zoom Nuke.command" is included as a fallback launcher.
-- A full log is saved to: ~/zoom_fix.log
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IMPORTANT: Gatekeeper (First Launch)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This app is not signed with an Apple Developer ID.
+macOS may block it on the first launch with:
+  "cannot be opened because the developer cannot be verified"
+
+FIX: Right-click "Zoom Nuke.app" → Open → Open
+     (You only need to do this once.)
+
+For IT/MDM pre-staging, remove the quarantine flag:
+  xattr -d com.apple.quarantine "Zoom Nuke.app"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Fallback: Command Line
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- "Start Zoom Nuke.command" — double-click terminal launcher.
+- "zoom_nuke_overkill.sh" — full CLI with --dry-run, --audit, --restore.
+- Log file: ~/zoom_fix.log
+
+See README.md for enterprise deployment, signing, and MDM instructions.
 EOF
 
 chmod +x "$STAGE_DIR/$BUNDLE_ROOT/zoom_nuke_overkill.sh"
 chmod +x "$STAGE_DIR/$BUNDLE_ROOT/zoom_nuke.sh"
 chmod +x "$STAGE_DIR/$BUNDLE_ROOT/Start Zoom Nuke.command"
 
+# Include preflight_check.sh in the release bundle so users can run it
+# before or after extracting the zip without needing the full repo.
+cp "$REPO_ROOT/tools/preflight_check.sh" "$STAGE_DIR/$BUNDLE_ROOT/"
+chmod +x "$STAGE_DIR/$BUNDLE_ROOT/preflight_check.sh"
+
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$STAGE_DIR/$BUNDLE_ROOT" "$ARCHIVE_PATH"
+
+# Copy the built app bundle into dist/ so downstream steps (e.g.
+# build_pkg_installer.sh) can reference it after this script exits and the
+# temporary staging directory is cleaned up by the EXIT trap.
+APP_BUNDLE_DIST="$DIST_DIR/$BUNDLE_ROOT"
+rm -rf "$APP_BUNDLE_DIST"
+cp -R "$STAGE_DIR/$BUNDLE_ROOT/Zoom Nuke.app" "$DIST_DIR/"
 
 echo "Created release bundle:"
 echo "  $ARCHIVE_PATH"
+echo "App bundle (for downstream pkg build):"
+echo "  $DIST_DIR/Zoom Nuke.app"

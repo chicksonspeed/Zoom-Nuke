@@ -1,509 +1,518 @@
 #!/usr/bin/env bash
-# ──────────────────────────────────────────────────────────
-# 🔥 zoom_fix.sh: macOS Zoom Nuke & Reinstall with Ben from IT 🔥
-# ──────────────────────────────────────────────────────────
+# zoom_nuke_overkill.sh — macOS Zoom Nuke & Reinstall (full-featured edition)
+#
+# Usage:
+#   zoom_nuke_overkill.sh [options]
+#
+# Options:
+#   -f, --force              Skip confirmation prompts
+#   -n, --dry-run            Preview actions without making any changes
+#   -d, --deep-clean         Also wipe /var/folders Xcode/WebKit/Safari caches
+#       --clear-browser-cache  Wipe entire browser caches (Chrome, Edge, Brave, Firefox, Safari)
+#       --restore [DIR]      Restore a previous backup (interactive if DIR omitted)
+#       --audit              Print a status report and exit (no changes)
+#   -v, --version            Show version and exit
+#   -h, --help               Show this help and exit
 
 set -Eeuo pipefail
-trap 'echo "❌ Oops! Something went wrong at line $LINENO. Exiting…"; exit 1' ERR
 
-# Configuration
-LOG="$HOME/zoom_fix.log"
-VERSION="3.1.5"
-ZOOM_URL="https://zoom.us/client/latest/Zoom.pkg"
-INSTALLOMATOR_URL="https://github.com/Installomator/Installomator/releases/latest/download/Installomator.pkg"
-INSTALLOMATOR_BIN="/usr/local/Installomator/Installomator.sh"
-BACKUP_DIR="$HOME/.zoom_backup_$(date +%Y%m%d_%H%M%S)"
-MIN_MACOS_VERSION="10.15.0"
-
-# Locate repository tools directory for auxiliary modules.
+# ---------------------------------------------------------------------------
+# Bootstrap: locate directories and source libraries
+# ---------------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 TOOLS_DIR="$SCRIPT_DIR/tools"
+CORE_LIB="$TOOLS_DIR/_zoom_core.sh"
 MAC_SPOOF_LIB="$TOOLS_DIR/mac_spoof.sh"
+PROTECTION_SCRIPT_SRC="$TOOLS_DIR/zoom_protection.sh"
+PROTECTION_SCRIPT="$HOME/.zoom_protection.sh"
+LOG="$HOME/zoom_fix.log"
 
+# Both libraries are mandatory: mac_spoof.sh owns version_to_number, which
+# _zoom_core.sh calls unconditionally inside core_check_requirements(). A
+# missing file is a hard error — silently skipping it causes a later crash.
 if [[ -f "$MAC_SPOOF_LIB" ]]; then
   # shellcheck source=/dev/null
   . "$MAC_SPOOF_LIB"
-fi
-
-# Logging setup
-exec > >(tee -i "$LOG") 2>&1
-
-USAGE="Usage: $0 [-f|--force] [-v|--version] [-h|--help] [-d|--deep-clean]"
-
-version_to_number() {
-  local version="$1"
-  local IFS='.'
-  local parts
-  read -r -a parts <<< "$version"
-  printf "%03d%03d%03d" "${parts[0]:-0}" "${parts[1]:-0}" "${parts[2]:-0}"
-}
-
-# ─── 0. Parse flags ───────────────────────────────────────
-FORCE=false
-DEEP_CLEAN=false
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    -f|--force) FORCE=true; shift ;;
-    -d|--deep-clean) DEEP_CLEAN=true; shift ;;
-    -v|--version) echo "zoom_fix.sh v$VERSION"; exit 0 ;;
-    -h|--help) echo "$USAGE"; exit 0 ;;
-    *) echo "$USAGE"; exit 1 ;;
-  esac
-done
-
-# ─── 1. Ensure macOS & deps ──────────────────────────────
-echo "🔍 Checking system requirements..."
-[[ "$(uname)" == "Darwin" ]] || { echo "❌ Only macOS supported."; exit 1; }
-
-# Check macOS version for compatibility
-MACOS_VERSION=$(sw_vers -productVersion)
-CURRENT_VERSION_NUM=$(version_to_number "$MACOS_VERSION")
-MIN_VERSION_NUM=$(version_to_number "$MIN_MACOS_VERSION")
-if ((10#$CURRENT_VERSION_NUM < 10#$MIN_VERSION_NUM)); then
-  echo "❌ Unsupported macOS version: $MACOS_VERSION"
-  echo "   Minimum required version: $MIN_MACOS_VERSION"
+else
+  echo "❌ Required library not found: $MAC_SPOOF_LIB" >&2
   exit 1
 fi
-echo "✅ macOS version: $MACOS_VERSION (minimum supported: $MIN_MACOS_VERSION)"
 
-for cmd in sudo curl openssl networksetup pkgutil system_profiler; do
-  command -v "$cmd" &>/dev/null || { echo "❌ Missing $cmd."; exit 1; }
-done
-
-# ─── 3. Hardware fingerprint analysis ─────────────────────
-echo "🔍 Analyzing hardware fingerprint..."
-HARDWARE_INFO="$BACKUP_DIR/hardware_info.txt"
-mkdir -p "$BACKUP_DIR"
-
-# Capture current hardware fingerprint
-{
-  echo "=== HARDWARE FINGERPRINT ANALYSIS ==="
-  echo "Date: $(date)"
-  echo "macOS Version: $MACOS_VERSION"
-  echo ""
-  echo "=== SYSTEM INFO ==="
-  system_profiler SPHardwareDataType 2>/dev/null | grep -E "(Model Name|Model Identifier|Serial Number|Hardware UUID)" || true
-  echo ""
-  echo "=== NETWORK INTERFACES ==="
-  ifconfig | grep -E "(ether|inet)" | head -10 || true
-  echo ""
-  echo "=== DISPLAY INFO ==="
-  system_profiler SPDisplaysDataType 2>/dev/null | grep -E "(Resolution|Pixel Depth)" || true
-  echo ""
-  echo "=== STORAGE INFO ==="
-  system_profiler SPStorageDataType 2>/dev/null | grep -E "(Capacity|Protocol)" || true
-  echo ""
-  echo "=== AUDIO INFO ==="
-  system_profiler SPAudioDataType 2>/dev/null | grep -E "(Output|Input)" || true
-} > "$HARDWARE_INFO"
-
-echo "✅ Hardware fingerprint saved to: $HARDWARE_INFO"
-
-# ─── 4. Detect primary interface ─────────────────────────
-echo "🌐 Detecting network interface..."
-HARDWARE_PORTS=$(networksetup -listallhardwareports 2>/dev/null || true)
-if awk '/Wi-Fi/{found=1} END{exit !found}' <<< "$HARDWARE_PORTS"; then
-  IF=$(awk '/Wi-Fi/{found=1} found && /Device:/{print $2; exit}' <<< "$HARDWARE_PORTS")
-  INTERFACE_TYPE="Wi-Fi"
+if [[ -f "$CORE_LIB" ]]; then
+  # shellcheck source=/dev/null
+  . "$CORE_LIB"
 else
-  IF=$(awk '/Device:/ && $2 ~ /^en/ {print $2; exit}' <<< "$HARDWARE_PORTS")
-  INTERFACE_TYPE="Ethernet"
-fi
-[[ -n "$IF" ]] || { echo "❌ Could not find any en* interface."; exit 1; }
-echo "✅ Interface: $IF ($INTERFACE_TYPE)"
-
-# ─── 5. Optional confirm ──────────────────────────────────
-if ! $FORCE; then
-  echo ""
-  echo "⚠️  This script will:"
-  echo "   • Kill all Zoom processes"
-  echo "   • Remove Zoom app and all data"
-  echo "   • Spoof MAC address and hardware identifiers"
-  echo "   • Clear system caches and fingerprints"
-  echo "   • Flush DNS and restart network"
-  echo "   • Download and reinstall Zoom"
-  if $DEEP_CLEAN; then
-    echo "   • Perform deep hardware fingerprint removal"
-  fi
-  echo ""
-  read -p "🗑️ Delete Zoom & data? (y/n): " ans
-  [[ $ans == [Yy] ]] || { echo "❌ Aborted."; exit 1; }
+  echo "❌ Required library not found: $CORE_LIB" >&2
+  exit 1
 fi
 
-# ─── 6. Create backup directory ───────────────────────────
-echo "💾 Creating backup directory..."
-mkdir -p "$BACKUP_DIR"
+# ---------------------------------------------------------------------------
+# ERR trap — must be defined after sourcing so it doesn't shadow library errors.
+# ---------------------------------------------------------------------------
+_on_err() {
+  local code=$? line=$1
+  echo "❌ Something went wrong at line $line (exit $code). Exiting…"
+  exit 1
+}
+trap '_on_err $LINENO' ERR
 
-# ─── 7. Kill & uninstall Zoom ────────────────────────────
-echo "🚀 Killing Zoom processes..."
-killall zoom.us Zoom zoom 2>/dev/null || true
-sleep 3
-
-# Double-check processes are dead
-if pgrep -f "zoom" >/dev/null; then
-  echo "⚠️ Some Zoom processes still running, force killing..."
-  sudo killall -9 zoom.us Zoom zoom 2>/dev/null || true
-  sleep 2
-fi
-
-echo "🧹 Removing app + preferences..."
-sudo rm -rf /Applications/zoom.us.app
-
-# Backup and remove user data
-ZOOM_DATA_DIRS=(
-  "$HOME/Library/Application Support/zoom.us"
-  "$HOME/Library/Caches/us.zoom.xos"
-  "$HOME/Library/Preferences/us.zoom.xos.plist"
-  "$HOME/Library/Logs/zoom.us"
-  "$HOME/Library/LaunchAgents/us.zoom.xos.plist"
-  "$HOME/Library/Preferences/zoom.us.conf"
-  "$HOME/Library/Containers/us.zoom.xos"
-  "$HOME/Library/Saved Application State/us.zoom.xos.savedState"
-)
-
-for dir in "${ZOOM_DATA_DIRS[@]}"; do
-  if [[ -e "$dir" ]]; then
-    echo "🗑️ Removing: $dir"
-    # Backup before removal
-    cp -r "$dir" "$BACKUP_DIR/" 2>/dev/null || true
-    rm -rf "$dir"
-  fi
-done
-
-# ─── 8. Forget pkg receipts & Homebrew ────────────────────
-echo "📦 Cleaning package receipts..."
-ZOOM_PKG=$(pkgutil --pkgs | grep -i zoom | head -n1 || true)
-[[ -n "$ZOOM_PKG" ]] && sudo pkgutil --forget "$ZOOM_PKG" || true
-
-if command -v brew &>/dev/null; then
-  echo "🍺 Checking Homebrew installations..."
-  CASK=$(brew list --cask 2>/dev/null | grep -i zoom || true)
-  [[ -n "$CASK" ]] && brew uninstall --cask "$CASK" || true
-fi
-
-# ─── 9. Enhanced MAC spoofing ────────────────────────────
-echo "🔧 Attempting MAC address spoofing..."
-MAC_SPOOFED=false
-
-if command -v spoof_mac_address >/dev/null 2>&1; then
-  spoof_mac_address "$IF" "$INTERFACE_TYPE" || true
-  if ! $MAC_SPOOFED; then
-    echo "⚠️ Failed to spoof MAC on $IF. This is common on modern macOS:"
-    echo "   • Private Wi-Fi Address enabled"
-    echo "   • System Integrity Protection (SIP) active"
-    echo "   • Network interface restrictions"
-    [[ -n "${MAC_SPOOF_REASON:-}" ]] && echo "   Reason: $MAC_SPOOF_REASON"
-    echo "   Continuing with other cleanup methods..."
-  fi
+# ---------------------------------------------------------------------------
+# Version
+# ---------------------------------------------------------------------------
+if [[ -f "$SCRIPT_DIR/VERSION" ]]; then
+  VERSION="$(tr -d '[:space:]' < "$SCRIPT_DIR/VERSION")"
 else
-  echo "⚠️ MAC spoofing module not available; skipping MAC spoof step."
+  VERSION="unknown"
 fi
 
-# ─── 10. Hardware fingerprint removal ─────────────────────
-echo "🔧 Removing hardware fingerprints..."
+USAGE="Usage: $0 [-f|--force] [-n|--dry-run] [-d|--deep-clean] [--clear-browser-cache] [--restore [DIR]] [--audit] [-v|--version] [-h|--help]"
 
-# Clear system caches that might contain hardware info
-CACHE_DIRS=(
-  "$HOME/Library/Caches"
-  "$HOME/Library/Application Support/Caches"
-  "/Library/Caches"
-  "/System/Library/Caches"
-)
+# ---------------------------------------------------------------------------
+# parse_args()
+# ---------------------------------------------------------------------------
+parse_args() {
+  FORCE=false
+  DEEP_CLEAN=false
+  DRY_RUN=false
+  CLEAR_BROWSER_CACHE=false
+  RESTORE_MODE=false
+  RESTORE_DIR=""
+  AUDIT_MODE=false
 
-for cache_dir in "${CACHE_DIRS[@]}"; do
-  if [[ -d "$cache_dir" ]]; then
-    echo "🧹 Clearing cache: $cache_dir"
-    find "$cache_dir" -name "*zoom*" -type f -delete 2>/dev/null || true
-    find "$cache_dir" -name "*Zoom*" -type f -delete 2>/dev/null || true
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      -f|--force)              FORCE=true;               shift ;;
+      -d|--deep-clean)         DEEP_CLEAN=true;          shift ;;
+      -n|--dry-run)            DRY_RUN=true;             shift ;;
+      --clear-browser-cache)   CLEAR_BROWSER_CACHE=true; shift ;;
+      --audit)                 AUDIT_MODE=true;          shift ;;
+      --restore)
+        RESTORE_MODE=true
+        if [[ $# -gt 1 && "${2:-}" != -* && -n "${2:-}" ]]; then
+          RESTORE_DIR="$2"; shift
+        fi
+        shift ;;
+      -v|--version) echo "zoom_nuke_overkill.sh v$VERSION"; exit 0 ;;
+      -h|--help)    echo "$USAGE"; exit 0 ;;
+      *) echo "Unknown option: $1"; echo "$USAGE"; exit 1 ;;
+    esac
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Logging — set up after parse_args so --version/--help don't create the log.
+# ---------------------------------------------------------------------------
+setup_logging() {
+  exec > >(tee -i "$LOG") 2>&1
+  echo "zoom_nuke_overkill.sh v$VERSION — $(date)"
+}
+
+# ---------------------------------------------------------------------------
+# audit_mode()
+# ---------------------------------------------------------------------------
+audit_mode() {
+  local report
+  report="$HOME/zoom_nuke_audit_$(date +%Y%m%d_%H%M%S).txt"
+  {
+    echo "═══════════════════════════════════════════════════"
+    echo "  Zoom Nuke Audit Report"
+    echo "  Generated: $(date)"
+    echo "  Tool version: $VERSION"
+    echo "  macOS: $(sw_vers -productVersion 2>/dev/null || echo unknown)"
+    echo "═══════════════════════════════════════════════════"
+    echo ""
+
+    echo "── Zoom Application ──────────────────────────────"
+    if [[ -d "/Applications/zoom.us.app" ]]; then
+      local zoom_ver
+      zoom_ver=$(defaults read "/Applications/zoom.us.app/Contents/Info.plist" \
+        CFBundleShortVersionString 2>/dev/null || echo "unknown")
+      echo "  Installed: YES (version $zoom_ver)"
+    else
+      echo "  Installed: NO"
+    fi
+    echo ""
+
+    echo "── Zoom Data Directories ─────────────────────────"
+    local dir
+    for dir in "${ZOOM_DATA_DIRS[@]}"; do
+      if [[ -e "$dir" ]]; then
+        local sz
+        sz=$(du -sh "$dir" 2>/dev/null | awk '{print $1}' || echo "?")
+        echo "  PRESENT ($sz): $dir"
+      else
+        echo "  absent:         $dir"
+      fi
+    done
+    echo ""
+
+    echo "── Package Receipts ──────────────────────────────"
+    local receipts
+    receipts=$(pkgutil --pkgs 2>/dev/null | grep -i zoom || true)
+    if [[ -n "$receipts" ]]; then
+      echo "$receipts" | while IFS= read -r r; do echo "  $r"; done
+    else
+      echo "  (none)"
+    fi
+    echo ""
+
+    echo "── MAC Address Status ────────────────────────────"
+    local hports audit_if audit_itype
+    hports=$(networksetup -listallhardwareports 2>/dev/null || true)
+    if awk '/Wi-Fi/{found=1} END{exit !found}' <<< "$hports"; then
+      audit_if=$(awk '/Wi-Fi/{found=1} found && /Device:/{print $2; exit}' <<< "$hports")
+      audit_itype="Wi-Fi"
+    else
+      audit_if=$(awk '/Device:/ && $2 ~ /^en/ {print $2; exit}' <<< "$hports")
+      audit_itype="Ethernet"
+    fi
+    local current_mac
+    current_mac=$(ifconfig "${audit_if:-en0}" 2>/dev/null | awk '/ether/ {print $2}' || echo "unknown")
+    echo "  Interface: ${audit_if:-unknown} ($audit_itype)"
+    echo "  Current MAC: $current_mac"
+    local mac_bkp="${MAC_BACKUP_PATH:-$HOME/.orig_mac_backup}"
+    if [[ -f "$mac_bkp" ]]; then
+      local bver biface bmac bts
+      # bver and bts are read for format completeness; only biface and bmac are used.
+      # shellcheck disable=SC2034
+      IFS=$'\t' read -r bver biface bmac bts < "$mac_bkp" 2>/dev/null || true
+      echo "  Backup: $mac_bkp"
+      echo "    Original MAC: ${bmac:-?} (interface: ${biface:-?})"
+      if [[ "${bmac:-}" == "$current_mac" ]]; then
+        echo "    Status: not spoofed (matches backup)"
+      else
+        echo "    Status: possibly spoofed (differs from backup)"
+      fi
+    else
+      echo "  Backup file: NOT FOUND ($mac_bkp)"
+    fi
+    echo ""
+
+    echo "── Protection Script ─────────────────────────────"
+    if [[ -f "$PROTECTION_SCRIPT" ]]; then
+      echo "  EXISTS: $PROTECTION_SCRIPT"
+    else
+      echo "  NOT FOUND: $PROTECTION_SCRIPT"
+    fi
+    echo ""
+
+    echo "── Backup Directories ────────────────────────────"
+    shopt -s nullglob
+    local bkps=("$HOME"/.zoomback.*)
+    shopt -u nullglob
+    if [[ ${#bkps[@]} -eq 0 ]]; then
+      echo "  (none found matching $HOME/.zoomback.*)"
+    else
+      local b sz btime
+      for b in "${bkps[@]}"; do
+        sz=$(du -sh "$b" 2>/dev/null | awk '{print $1}' || echo "?")
+        btime=$(stat -f '%SB' "$b" 2>/dev/null || stat -c '%y' "$b" 2>/dev/null || echo "?")
+        echo "  $b  ($sz, created $btime)"
+      done
+    fi
+    echo ""
+
+    echo "── Hardware Fingerprint ──────────────────────────"
+    system_profiler SPHardwareDataType 2>/dev/null \
+      | grep -E "(Model Name|Model Identifier|Serial Number|Hardware UUID)" \
+      | sed 's/^/  /' || echo "  (could not read)"
+    echo ""
+    echo "═══════════════════════════════════════════════════"
+  } | tee "$report"
+  echo ""
+  echo "📋 Audit report saved to: $report"
+}
+
+# ---------------------------------------------------------------------------
+# restore_mode()
+# ---------------------------------------------------------------------------
+restore_mode() {
+  echo "🔄 Zoom Nuke — Restore Mode"
+  echo ""
+
+  if [[ -z "$RESTORE_DIR" ]]; then
+    shopt -s nullglob
+    local available=("$HOME"/.zoomback.*)
+    shopt -u nullglob
+
+    if [[ ${#available[@]} -eq 0 ]]; then
+      echo "❌ No backup directories found matching $HOME/.zoomback.*"
+      exit 1
+    fi
+
+    echo "Available backups (newest first):"
+    local sorted=()
+    while IFS= read -r bkp_entry; do
+      sorted+=("$bkp_entry")
+    done < <(ls -dt "${available[@]}" 2>/dev/null || true)
+    local i
+    for i in "${!sorted[@]}"; do
+      local btime sz
+      btime=$(stat -f '%SB' "${sorted[$i]}" 2>/dev/null \
+        || stat -c '%y' "${sorted[$i]}" 2>/dev/null || echo "?")
+      sz=$(du -sh "${sorted[$i]}" 2>/dev/null | awk '{print $1}' || echo "?")
+      printf "  [%d] %s  (%s, %s)\n" $((i+1)) "${sorted[$i]}" "$sz" "$btime"
+    done
+
+    echo ""
+    read -r -p "Enter number to restore (or q to quit): " choice
+    [[ "$choice" == [Qq] ]] && { echo "❌ Restore aborted."; exit 1; }
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > ${#sorted[@]} )); then
+      echo "❌ Invalid choice."; exit 1
+    fi
+    RESTORE_DIR="${sorted[$((choice-1))]}"
   fi
-done
 
-# Clear additional system identifiers
-echo "🔧 Clearing system identifiers..."
-sudo rm -rf /var/folders/*/com.apple.dt.Xcode/* 2>/dev/null || true
-if $DEEP_CLEAN; then
-  # Avoid wiping WebKit/Safari unless the user explicitly asked for deep-clean.
-  WEBKIT_MATCHES=$( (ls -d /var/folders/*/com.apple.WebKit* 2>/dev/null || true) | wc -l | tr -d ' ' )
-  SAFARI_MATCHES=$( (ls -d /var/folders/*/com.apple.Safari* 2>/dev/null || true) | wc -l | tr -d ' ' )
-  echo "🧹 Deep clean: WebKit cache matches=$WEBKIT_MATCHES, Safari cache matches=$SAFARI_MATCHES"
-  sudo rm -rf /var/folders/*/com.apple.WebKit* 2>/dev/null || true
-  sudo rm -rf /var/folders/*/com.apple.Safari* 2>/dev/null || true
-else
-  echo "ℹ️ Standard clean: skipping WebKit/Safari cache wipes (/var/folders/com.apple.WebKit*, /var/folders/com.apple.Safari*)."
-fi
+  [[ -d "$RESTORE_DIR" ]] || { echo "❌ Backup directory not found: $RESTORE_DIR"; exit 1; }
 
-# Clear browser fingerprints
-BROWSER_CACHES=(
-  "$HOME/Library/Application Support/Google/Chrome/Default/Cache"
-  "$HOME/Library/Application Support/Google/Chrome/Default/Code Cache"
-  "$HOME/Library/Application Support/Microsoft Edge/Default/Cache"
-  "$HOME/Library/Application Support/Microsoft Edge/Default/Code Cache"
-  "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Cache"
-  "$HOME/Library/Application Support/BraveSoftware/Brave-Browser/Default/Code Cache"
-  "$HOME/Library/Safari/LocalStorage"
-  "$HOME/Library/Safari/WebpageIcons.db"
-)
+  echo "📂 Restoring from: $RESTORE_DIR"
+  read -r -p "⚠️  This will overwrite existing Zoom data. Proceed? (y/n): " confirm
+  [[ "$confirm" == [Yy] ]] || { echo "❌ Restore aborted."; exit 1; }
 
-# Expand Firefox profile caches safely when they exist
-shopt -s nullglob
-for firefox_cache in "$HOME"/Library/Application\ Support/Mozilla/Firefox/Profiles/*/cache2; do
-  BROWSER_CACHES+=("$firefox_cache")
-done
-shopt -u nullglob
-
-for browser_cache in "${BROWSER_CACHES[@]}"; do
-  if [[ -d "$browser_cache" ]]; then
-    echo "🧹 Clearing browser cache: $browser_cache"
-    rm -rf "$browser_cache"/* 2>/dev/null || true
-  elif [[ -f "$browser_cache" ]]; then
-    echo "🧹 Removing browser cache file: $browser_cache"
-    rm -f "$browser_cache" 2>/dev/null || true
-  fi
-done
-
-# ─── 11. Deep hardware fingerprint removal (if enabled) ───
-if $DEEP_CLEAN; then
-  echo "🔧 Performing deep Zoom artifact cleanup..."
-
-  DEEP_CLEAN_PATHS=(
-    "$HOME/Library/Application Support/zoom.us"
-    "$HOME/Library/Caches/us.zoom.xos"
-    "$HOME/Library/Containers/us.zoom.xos"
-    "$HOME/Library/Logs/zoom.us"
-    "$HOME/Library/Preferences/us.zoom.xos.plist"
-    "$HOME/Library/Saved Application State/us.zoom.xos.savedState"
-  )
-
-  for deep_path in "${DEEP_CLEAN_PATHS[@]}"; do
-    if [[ -e "$deep_path" ]]; then
-      echo "🧹 Deep removing: $deep_path"
-      cp -R "$deep_path" "$BACKUP_DIR/" 2>/dev/null || true
-      rm -rf "$deep_path"
+  local count=0 skipped=0 dir basename src
+  for dir in "${ZOOM_DATA_DIRS[@]}"; do
+    basename="$(basename "$dir")"
+    src="$RESTORE_DIR/$basename"
+    if [[ -e "$src" ]]; then
+      echo "♻️  Restoring: $dir"
+      run mkdir -p "$(dirname "$dir")"
+      run cp -r "$src" "$dir" && (( count++ )) || true
+    else
+      echo "   skipping (not in backup): $dir"
+      (( skipped++ )) || true
     fi
   done
 
-  # Scan only safe cache/log roots for Zoom-named artifacts.
-  SAFE_SCAN_ROOTS=(
+  echo ""
+  echo "✅ Restore complete: $count items restored, $skipped not in backup."
+  echo "   Relaunch Zoom to apply."
+}
+
+# ---------------------------------------------------------------------------
+# capture_hardware_fingerprint()
+# ---------------------------------------------------------------------------
+capture_hardware_fingerprint() {
+  echo "🔍 Capturing hardware fingerprint snapshot..."
+  local info_file="$BACKUP_DIR/hardware_info.txt"
+  {
+    echo "=== HARDWARE FINGERPRINT ANALYSIS ==="
+    echo "Date: $(date)"
+    echo "macOS Version: $MACOS_VERSION"
+    echo ""
+    echo "=== SYSTEM INFO ==="
+    system_profiler SPHardwareDataType 2>/dev/null \
+      | grep -E "(Model Name|Model Identifier|Serial Number|Hardware UUID)" || true
+    echo ""
+    echo "=== NETWORK INTERFACES ==="
+    ifconfig | grep -E "(ether|inet)" | head -10 || true
+    echo ""
+    echo "=== DISPLAY INFO ==="
+    system_profiler SPDisplaysDataType 2>/dev/null \
+      | grep -E "(Resolution|Pixel Depth)" || true
+    echo ""
+    echo "=== STORAGE INFO ==="
+    system_profiler SPStorageDataType 2>/dev/null \
+      | grep -E "(Capacity|Protocol)" || true
+  } > "$info_file"
+  echo "✅ Hardware fingerprint saved to: $info_file"
+}
+
+# ---------------------------------------------------------------------------
+# deep_clean()
+# ---------------------------------------------------------------------------
+deep_clean() {
+  echo "🔧 Deep clean: removing /var/folders entries..."
+  run sudo rm -rf /var/folders/*/com.apple.dt.Xcode/*  2>/dev/null || true
+  run sudo rm -rf /var/folders/*/com.apple.WebKit*      2>/dev/null || true
+  run sudo rm -rf /var/folders/*/com.apple.Safari*      2>/dev/null || true
+
+  echo "🔧 Deep Zoom artifact scan..."
+  local roots=(
     "$HOME/Library/Caches"
     "$HOME/Library/Logs"
     "$HOME/Library/Application Support"
     "/Library/Caches"
   )
-
-  for scan_root in "${SAFE_SCAN_ROOTS[@]}"; do
-    [[ -d "$scan_root" ]] || continue
+  local root match
+  for root in "${roots[@]}"; do
+    check_cancel
+    [[ -d "$root" ]] || continue
     while IFS= read -r -d '' match; do
-      echo "🧹 Deep removing matched artifact: $match"
-      rm -rf "$match" 2>/dev/null || true
-    done < <(find "$scan_root" -maxdepth 5 \( -iname "*zoom*" -o -iname "*us.zoom*" \) -print0 2>/dev/null || true)
+      echo "🧹 Deep removing: $match"
+      run rm -rf "$match" 2>/dev/null || true
+    done < <(find "$root" -maxdepth 5 \
+      \( -iname "*zoom*" -o -iname "*us.zoom*" \) -print0 2>/dev/null || true)
   done
+  echo "✅ Deep artifact cleanup complete"
+}
 
-  echo "✅ Deep Zoom artifact cleanup completed"
-fi
-
-# ─── 12. Enhanced DNS and network cleanup ─────────────────
-echo "🌐 Flushing DNS and network caches..."
-sudo dscacheutil -flushcache
-sudo killall -HUP mDNSResponder || true
-sudo killall -HUP lookupd || true
-
-# Clear additional caches
-sudo rm -rf /Library/Caches/com.apple.dns* 2>/dev/null || true
-sudo rm -rf /var/folders/*/com.apple.dns* 2>/dev/null || true
-
-# ─── 13. Smart network service restart ────────────────────
-echo "🔄 Restarting network services..."
-# Find the primary network service
-SERV=$(networksetup -listallnetworkservices 2>/dev/null \
-  | sed '1d; s/^\* //' \
-  | grep -E "^(Wi-Fi|Ethernet)$" \
-  | head -n1 || true)
-
-if [[ -n "$SERV" ]]; then
-  echo "🔄 Restarting network service: $SERV"
-  sudo networksetup -setnetworkserviceenabled "$SERV" off
-  sleep 3
-  sudo networksetup -setnetworkserviceenabled "$SERV" on
-  sleep 2
-  echo "✅ Network service restarted"
-else
-  echo "⚠️ No primary network service found; skipping restart"
-fi
-
-# ─── 14. Network connectivity test ────────────────────────
-echo "🌐 Testing network connectivity..."
-if ! curl -s --connect-timeout 10 --max-time 30 "https://www.google.com" >/dev/null; then
-  echo "⚠️ Network connectivity test failed. Waiting 10 seconds..."
-  sleep 10
-  if ! curl -s --connect-timeout 10 --max-time 30 "https://www.google.com" >/dev/null; then
-    echo "❌ Network connectivity issues detected. Proceeding anyway..."
-  fi
-else
-  echo "✅ Network connectivity confirmed"
-fi
-
-# ─── 15. Download & install Zoom ──────────────────────────
-mkdir -p "$HOME/Downloads"
-PKG="$HOME/Downloads/Zoom.pkg"
-INSTALLOMATOR_PKG=""
-USED_INSTALLOMATOR=false
-echo "⬇️ Downloading Zoom from official source..."
-if ! curl -L --fail --silent --show-error --connect-timeout 30 --max-time 300 -o "$PKG" "$ZOOM_URL"; then
-  echo "❌ Zoom package download failed. Trying Installomator fallback..."
-  INSTALLOMATOR_PKG="/tmp/Installomator.pkg"
-  if ! curl -L --fail --silent --show-error --connect-timeout 30 --max-time 300 -o "$INSTALLOMATOR_PKG" "$INSTALLOMATOR_URL"; then
-    echo "❌ Failed to download Installomator fallback package."
-    exit 1
+# ---------------------------------------------------------------------------
+# install_protection_script()
+# ---------------------------------------------------------------------------
+install_protection_script() {
+  echo "🔧 Installing hardware protection script..."
+  if [[ "${DRY_RUN:-false}" == "true" ]]; then
+    echo "[DRY RUN] Would install protection script to $PROTECTION_SCRIPT"
+    return 0
   fi
 
-  echo "📦 Installing Installomator..."
-  if ! sudo installer -pkg "$INSTALLOMATOR_PKG" -target /; then
-    echo "❌ Installomator installation failed."
-    exit 1
+  if [[ -f "$PROTECTION_SCRIPT_SRC" ]]; then
+    cp "$PROTECTION_SCRIPT_SRC" "$PROTECTION_SCRIPT"
+    chmod +x "$PROTECTION_SCRIPT"
+    echo "✅ Protection script installed from tools/: $PROTECTION_SCRIPT"
+  else
+    # Inline fallback when tools/ isn't present (e.g. inside the app bundle).
+    cat > "$PROTECTION_SCRIPT" << 'PROTECTION_EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+ZOOM_BIN="/Applications/zoom.us.app/Contents/MacOS/zoom.us"
+[[ -x "$ZOOM_BIN" ]] || { echo "❌ Zoom not found at $ZOOM_BIN" >&2; exit 1; }
+_rand_hex3() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 3 2>/dev/null || true
+  else
+    od -An -N3 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || true
   fi
-
-  if [[ ! -x "$INSTALLOMATOR_BIN" ]]; then
-    echo "❌ Installomator binary not found at $INSTALLOMATOR_BIN"
-    exit 1
-  fi
-
-  echo "📦 Installing Zoom via Installomator..."
-  if ! sudo "$INSTALLOMATOR_BIN" zoom; then
-    echo "❌ Installomator failed to install Zoom."
-    exit 1
-  fi
-
-  USED_INSTALLOMATOR=true
-fi
-
-if ! $USED_INSTALLOMATOR; then
-  # Verify package integrity
-  echo "🔍 Verifying package integrity..."
-  if ! SIGNATURE_INFO=$(pkgutil --check-signature "$PKG" 2>&1); then
-    echo "❌ Package signature verification failed. Aborting install."
-    echo "$SIGNATURE_INFO"
-    exit 1
-  fi
-  echo "✅ Package signature verified"
-
-  # Check package size
-  PKG_SIZE=$(stat -f%z "$PKG" 2>/dev/null || stat -c%s "$PKG" 2>/dev/null || echo "0")
-  if [[ $PKG_SIZE -lt 10000000 ]]; then  # Less than 10MB
-    echo "❌ Downloaded package seems too small ($((PKG_SIZE/1024/1024))MB). Corrupted download?"
-    exit 1
-  fi
-
-  echo "📦 Installing Zoom..."
-  if ! sudo installer -pkg "$PKG" -target /; then
-    echo "❌ Installation failed."
-    exit 1
-  fi
-else
-  echo "✅ Zoom installed via Installomator fallback"
-fi
-
-# ─── 16. Verify installation ──────────────────────────────
-echo "✅ Verifying installation..."
-if [[ ! -d "/Applications/zoom.us.app" ]]; then
-  echo "❌ Installation verification failed - app not found"
-  exit 1
-fi
-
-# Check app version
-if [[ -f "/Applications/zoom.us.app/Contents/Info.plist" ]]; then
-  ZOOM_VERSION=$(defaults read "/Applications/zoom.us.app/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "unknown")
-  echo "✅ Zoom installed successfully (version: $ZOOM_VERSION)"
-else
-  echo "✅ Zoom installed successfully"
-fi
-
-# ─── 17. Enhanced data file wiping ───────────────────────
-echo "🧹 Removing residual data files..."
-DATA="$HOME/Library/Application Support/zoom.us/data"
-if [[ -d "$DATA" ]]; then
-  for f in viper.ini zoomus.enc.db zoommeeting.enc.db; do
-    if [[ -f "$DATA/$f" ]]; then
-      echo "⚠️ Removing $f"
-      rm -f "$DATA/$f"
-    fi
-  done
-fi
-
-# ─── 18. Additional hardware protection ───────────────────
-echo "🔧 Setting up additional hardware protection..."
-
-# Create hardware fingerprint spoofing script
-PROTECTION_SCRIPT="$HOME/.zoom_protection.sh"
-cat > "$PROTECTION_SCRIPT" << 'EOF'
-#!/bin/bash
-# Hardware fingerprint protection for Zoom
-
-# Spoof additional identifiers
-export HOSTNAME="MacBook-$(printf '%02x%02x%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)))"
-export COMPUTER_NAME="$HOSTNAME"
-
-# Clear additional caches before Zoom launch
+}
+SPOOF_NAME="MacBook-$(_rand_hex3)"
+ORIG_HOSTNAME="$(scutil --get HostName 2>/dev/null || hostname 2>/dev/null || echo "")"
+ORIG_COMPUTERNAME="$(scutil --get ComputerName 2>/dev/null || echo "")"
+ORIG_LOCALHOSTNAME="$(scutil --get LocalHostName 2>/dev/null || echo "")"
+_restore() {
+  [[ -n "$ORIG_HOSTNAME" ]]      && sudo scutil --set HostName      "$ORIG_HOSTNAME"      2>/dev/null || true
+  [[ -n "$ORIG_COMPUTERNAME" ]]  && sudo scutil --set ComputerName  "$ORIG_COMPUTERNAME"  2>/dev/null || true
+  [[ -n "$ORIG_LOCALHOSTNAME" ]] && sudo scutil --set LocalHostName "$ORIG_LOCALHOSTNAME" 2>/dev/null || true
+}
+trap _restore EXIT INT TERM
+sudo scutil --set HostName "$SPOOF_NAME" 2>/dev/null \
+  && sudo scutil --set ComputerName "$SPOOF_NAME" 2>/dev/null \
+  && sudo scutil --set LocalHostName "$SPOOF_NAME" 2>/dev/null \
+  && echo "✅ Hostname spoofed to: $SPOOF_NAME" \
+  || echo "⚠️  Hostname spoof failed (sudo required)."
 rm -rf "$HOME/Library/Caches/us.zoom.xos" 2>/dev/null || true
 rm -rf "$HOME/Library/Application Support/zoom.us/data"/*.db 2>/dev/null || true
-
-# Launch Zoom with clean environment
-exec /Applications/zoom.us.app/Contents/MacOS/zoom.us "$@"
-EOF
-
-chmod +x "$PROTECTION_SCRIPT"
-echo "✅ Hardware protection script created: $PROTECTION_SCRIPT"
-
-# ─── 19. Cleanup and finalization ───────────────────────
-echo "🧹 Cleaning up..."
-rm -f "$PKG"
-if [[ -n "$INSTALLOMATOR_PKG" ]]; then
-  rm -f "$INSTALLOMATOR_PKG"
-fi
-
-# Show backup location
-if [[ -d "$BACKUP_DIR" ]] && [[ "$(ls -A "$BACKUP_DIR" 2>/dev/null)" ]]; then
-  echo "💾 Backup created at: $BACKUP_DIR"
-  echo "   You can restore data from here if needed"
-fi
-
-# Final status
-echo ""
-echo "🎉 Zoom nuke & reinstall completed successfully!"
-echo "📋 Summary:"
-echo "   • Zoom processes killed"
-echo "   • App and data removed"
-echo "   • MAC address spoofed: $(if $MAC_SPOOFED; then echo "Yes"; else echo "No"; fi)"
-echo "   • Hardware fingerprints cleared"
-echo "   • System caches flushed"
-echo "   • Network services restarted"
-echo "   • Fresh Zoom installed"
-echo "   • Hardware protection script created"
-echo "   • Log saved to: $LOG"
-if $DEEP_CLEAN; then
-  echo "   • Deep hardware fingerprint removal performed"
-fi
-echo ""
-echo "🚀 You can now launch Zoom with enhanced protection!"
-echo "💡 Use the protection script: $PROTECTION_SCRIPT"
-
-# Optional: Launch Zoom
-if ! $FORCE; then
-  read -p "🚀 Launch Zoom with protection? (y/n): " launch_ans
-  if [[ $launch_ans == [Yy] ]]; then
-    echo "🚀 Launching Zoom with hardware protection (detached; ignore hangup)..."
-    nohup "$PROTECTION_SCRIPT" >>"$LOG" 2>&1 &
-    ZOOM_LAUNCH_PID=$!
-    echo "✅ Zoom launch requested; detached PID: $ZOOM_LAUNCH_PID"
-
-    # Lightweight readiness check + logging (best-effort).
-    sleep 2
-    if [[ -x "/Applications/zoom.us.app/Contents/MacOS/zoom.us" ]]; then
-      echo "🔎 Verified zoom executable exists."
-    else
-      echo "⚠️ zoom executable not found at expected path."
-    fi
-    echo "🔎 zoom.us processes (pgrep):"
-    pgrep -fl 'zoom\.us' 2>/dev/null || echo "ℹ️ No zoom.us process detected yet."
+rm -f  "$HOME/Library/Application Support/zoom.us/data/viper.ini" 2>/dev/null || true
+exec "$ZOOM_BIN" "$@"
+PROTECTION_EOF
+    chmod +x "$PROTECTION_SCRIPT"
+    echo "✅ Protection script created (inline fallback): $PROTECTION_SCRIPT"
   fi
-fi
+}
 
+# ---------------------------------------------------------------------------
+# print_summary()
+# ---------------------------------------------------------------------------
+print_summary() {
+  echo ""
+  if [[ "${DRY_RUN:-false}" == "true" ]]; then
+    echo "✅ Dry run complete — no changes were made."
+  else
+    echo "🎉 Zoom nuke & reinstall completed successfully!"
+  fi
+  echo ""
+  echo "📋 Summary:"
+  echo "   • Dry-run mode:           $(if [[ "${DRY_RUN:-false}" == "true" ]]; then echo "Yes (nothing changed)"; else echo "No"; fi)"
+  echo "   • Deep clean:             $(if [[ "${DEEP_CLEAN:-false}" == "true" ]]; then echo "Yes"; else echo "No"; fi)"
+  echo "   • Browser cache cleared:  $(if [[ "${CLEAR_BROWSER_CACHE:-false}" == "true" ]]; then echo "Yes"; else echo "No"; fi)"
+  echo "   • MAC address spoofed:    $(if [[ "${MAC_SPOOFED:-false}" == "true" ]]; then echo "Yes"; else echo "No"; fi)"
+  echo "   • Log:                    $LOG"
+  if [[ "${DRY_RUN:-false}" == "false" ]]; then
+    echo "   • Backup:                 $BACKUP_DIR"
+    echo "   • Protection script:      $PROTECTION_SCRIPT"
+    echo ""
+    echo "   To restore this backup:"
+    echo "     $0 --restore $BACKUP_DIR"
+  fi
+  echo ""
+  echo "   To audit without changes:"
+  echo "     $0 --audit"
+  echo ""
+}
+
+# ---------------------------------------------------------------------------
+# maybe_launch_zoom()
+# ---------------------------------------------------------------------------
+maybe_launch_zoom() {
+  [[ "${FORCE:-false}" == "true" || "${DRY_RUN:-false}" == "true" ]] && return 0
+  read -r -p "🚀 Launch Zoom with protection? (y/n): " launch_ans
+  [[ $launch_ans == [Yy] ]] || return 0
+
+  local data="$HOME/Library/Application Support/zoom.us/data"
+  if [[ -d "$data" ]]; then
+    local f
+    for f in viper.ini zoomus.enc.db zoommeeting.enc.db; do
+      [[ -f "$data/$f" ]] && { echo "⚠️  Removing $f"; rm -f "$data/$f"; }
+    done
+  fi
+
+  echo "🚀 Launching Zoom (detached)..."
+  nohup "$PROTECTION_SCRIPT" >>"$LOG" 2>&1 &
+  local pid=$!
+  sleep 2
+  echo "✅ Zoom launch requested (PID: $pid)"
+}
+
+# ---------------------------------------------------------------------------
+# main()
+# ---------------------------------------------------------------------------
+main() {
+  parse_args "$@"
+  setup_logging
+
+  if [[ "$AUDIT_MODE" == "true" ]]; then
+    audit_mode
+    exit 0
+  fi
+
+  if [[ "$RESTORE_MODE" == "true" ]]; then
+    restore_mode
+    exit 0
+  fi
+
+  core_check_requirements          # sets MACOS_VERSION
+  core_detect_interface            # sets IF, INTERFACE_TYPE
+
+  # Create backup dir here (after requirements check, before any removal).
+  BACKUP_DIR=$(mktemp -d "$HOME/.zoomback.XXXXXXXX")
+  capture_hardware_fingerprint
+
+  # Build confirmation extras for deep-clean and browser-cache.
+  local confirm_extras=()
+  if [[ "$DEEP_CLEAN" == "true" ]]; then
+    confirm_extras+=("• Deep clean: wipes Xcode/WebKit/Safari /var/folders caches")
+  fi
+  if [[ "$CLEAR_BROWSER_CACHE" == "true" ]]; then
+    confirm_extras+=("• Browser cache: wipes Chrome, Edge, Brave, Firefox, Safari caches")
+  fi
+  core_confirm ${confirm_extras[@]+"${confirm_extras[@]}"}
+
+  check_cancel
+  core_kill_zoom
+  core_remove_zoom_data            # check_cancel inside each loop iteration
+
+  check_cancel
+  core_forget_receipts
+  core_spoof_mac
+  core_clear_zoom_caches           # Zoom-only cache entries; check_cancel inside
+
+  if [[ "$CLEAR_BROWSER_CACHE" == "true" ]]; then
+    core_clear_browser_caches      # full browser caches; check_cancel inside
+  fi
+
+  if [[ "$DEEP_CLEAN" == "true" ]]; then
+    deep_clean                     # check_cancel inside each scan root
+  fi
+
+  core_flush_dns
+  core_restart_network
+  core_test_connectivity
+
+  check_cancel
+  core_download_and_install_zoom
+  install_protection_script
+
+  print_summary
+  maybe_launch_zoom
+}
+
+main "$@"
