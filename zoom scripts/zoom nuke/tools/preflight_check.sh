@@ -26,9 +26,9 @@ _YELLOW="\033[0;33m"
 _GREEN="\033[0;32m"
 _RESET="\033[0m"
 
-_ok()   { printf "  ${_GREEN}✅ OK${_RESET}    %s\n" "$*"; }
-_warn() { printf "  ${_YELLOW}⚠️  WARN${_RESET}  %s\n" "$*"; }
-_fail() { printf "  ${_RED}❌ FAIL${_RESET}  %s\n" "$*"; }
+_ok()   { $JSON_MODE && printf "  ${_GREEN}✅ OK${_RESET}    %s\n" "$*" >&2 || printf "  ${_GREEN}✅ OK${_RESET}    %s\n" "$*"; }
+_warn() { $JSON_MODE && printf "  ${_YELLOW}⚠️  WARN${_RESET}  %s\n" "$*" >&2 || printf "  ${_YELLOW}⚠️  WARN${_RESET}  %s\n" "$*"; }
+_fail() { $JSON_MODE && printf "  ${_RED}❌ FAIL${_RESET}  %s\n" "$*" >&2 || printf "  ${_RED}❌ FAIL${_RESET}  %s\n" "$*"; }
 
 JSON_MODE=false
 [[ "${1:-}" == "--json" ]] && JSON_MODE=true
@@ -226,20 +226,23 @@ fi
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
-echo ""
+# In JSON mode all human-readable output goes to stderr so stdout contains
+# only the machine-readable JSON object.
+_out() { $JSON_MODE && printf "%s" "$*" >&2 || printf "%s" "$*"; }
+_out ""$'\n'
 if [[ $HARD_FAIL -eq 1 ]]; then
-  printf "${_BOLD}${_RED}PREFLIGHT RESULT: BLOCKED${_RESET}\n"
-  printf "  Hard failures detected. Zoom Nuke will not run correctly.\n"
-  printf "  Fix the ❌ items above before proceeding.\n\n"
+  _out "${_BOLD}${_RED}PREFLIGHT RESULT: BLOCKED${_RESET}"$'\n'
+  _out "  Hard failures detected. Zoom Nuke will not run correctly."$'\n'
+  _out "  Fix the ❌ items above before proceeding."$'\n\n'
   PREFLIGHT_EXIT_CODE=1
 elif [[ $SOFT_WARN -eq 1 ]]; then
-  printf "${_BOLD}${_YELLOW}PREFLIGHT RESULT: DEGRADED MODE${_RESET}\n"
-  printf "  Some features (MAC spoofing, network) may not work fully.\n"
-  printf "  Core nuke + reinstall should still succeed.\n\n"
+  _out "${_BOLD}${_YELLOW}PREFLIGHT RESULT: DEGRADED MODE${_RESET}"$'\n'
+  _out "  Some features (MAC spoofing, network) may not work fully."$'\n'
+  _out "  Core nuke + reinstall should still succeed."$'\n\n'
   PREFLIGHT_EXIT_CODE=2
 else
-  printf "${_BOLD}${_GREEN}PREFLIGHT RESULT: ALL CLEAR${_RESET}\n"
-  printf "  Full functionality expected.\n\n"
+  _out "${_BOLD}${_GREEN}PREFLIGHT RESULT: ALL CLEAR${_RESET}"$'\n'
+  _out "  Full functionality expected."$'\n\n'
   PREFLIGHT_EXIT_CODE=0
 fi
 

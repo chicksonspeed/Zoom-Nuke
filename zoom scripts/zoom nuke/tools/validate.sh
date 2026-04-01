@@ -193,8 +193,8 @@ echo "── 5. Preflight check ────────────────
 if [[ "$(uname)" != "Darwin" ]]; then
   _info "Skipping preflight (not macOS)"
 else
-  PREFLIGHT_OUT=$(bash "$REPO_ROOT/tools/preflight_check.sh" 2>&1 || true)
-  PREFLIGHT_CODE=$?
+  PREFLIGHT_OUT=$(bash "$REPO_ROOT/tools/preflight_check.sh" 2>&1) || PREFLIGHT_CODE=$?
+  PREFLIGHT_CODE=${PREFLIGHT_CODE:-0}
   if (( PREFLIGHT_CODE == 0 )); then
     _pass "Preflight: all clear (exit 0)"
   elif (( PREFLIGHT_CODE == 2 )); then

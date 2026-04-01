@@ -204,7 +204,7 @@ productbuild \
   --distribution "$DIST_XML" \
   --package-path "$STAGE_DIR" \
   --resources "$STAGE_DIR" \
-  "${SIGN_ARGS[@]}" \
+  ${SIGN_ARGS[@]+"${SIGN_ARGS[@]}"} \
   "$PKG_PATH"
 
 echo ""
