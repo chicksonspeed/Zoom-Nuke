@@ -49,12 +49,21 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$STAGE_DIR/$BUNDLE_ROOT"
+mkdir -p "$STAGE_DIR/$BUNDLE_ROOT/cli"
 
 bash "$APP_BUILDER" "$STAGE_DIR/$BUNDLE_ROOT"
-cp "$REPO_ROOT/zoom_nuke_overkill.sh" "$STAGE_DIR/$BUNDLE_ROOT/"
-cp "$REPO_ROOT/zoom_nuke.sh" "$STAGE_DIR/$BUNDLE_ROOT/"
-cp "$REPO_ROOT/Start Zoom Nuke.command" "$STAGE_DIR/$BUNDLE_ROOT/"
-cp "$REPO_ROOT/README.md" "$STAGE_DIR/$BUNDLE_ROOT/"
+
+# Shell scripts go into cli/ so they don't clutter the top level for normal users
+cp "$REPO_ROOT/zoom_nuke_overkill.sh" "$STAGE_DIR/$BUNDLE_ROOT/cli/"
+cp "$REPO_ROOT/zoom_nuke.sh"          "$STAGE_DIR/$BUNDLE_ROOT/cli/"
+cp "$REPO_ROOT/Start Zoom Nuke.command" "$STAGE_DIR/$BUNDLE_ROOT/cli/"
+cp "$REPO_ROOT/tools/preflight_check.sh" "$STAGE_DIR/$BUNDLE_ROOT/cli/"
+cp "$REPO_ROOT/README.md"             "$STAGE_DIR/$BUNDLE_ROOT/cli/"
+
+chmod +x "$STAGE_DIR/$BUNDLE_ROOT/cli/zoom_nuke_overkill.sh"
+chmod +x "$STAGE_DIR/$BUNDLE_ROOT/cli/zoom_nuke.sh"
+chmod +x "$STAGE_DIR/$BUNDLE_ROOT/cli/Start Zoom Nuke.command"
+chmod +x "$STAGE_DIR/$BUNDLE_ROOT/cli/preflight_check.sh"
 
 cat > "$STAGE_DIR/$BUNDLE_ROOT/START_HERE.txt" <<'EOF'
 Zoom Nuke - Quick Start
@@ -75,27 +84,14 @@ macOS may block it on the first launch with:
 FIX: Right-click "Zoom Nuke.app" → Open → Open
      (You only need to do this once.)
 
-For IT/MDM pre-staging, remove the quarantine flag:
-  xattr -d com.apple.quarantine "Zoom Nuke.app"
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Fallback: Command Line
+Advanced / Command Line
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- "Start Zoom Nuke.command" — double-click terminal launcher.
-- "zoom_nuke_overkill.sh" — full CLI with --dry-run, --audit, --restore.
-- Log file: ~/zoom_fix.log
+The "cli" folder contains shell scripts for power users and IT pros.
+Most users can ignore it entirely.
 
-See README.md for enterprise deployment, signing, and MDM instructions.
+Log file: ~/zoom_fix.log
 EOF
-
-chmod +x "$STAGE_DIR/$BUNDLE_ROOT/zoom_nuke_overkill.sh"
-chmod +x "$STAGE_DIR/$BUNDLE_ROOT/zoom_nuke.sh"
-chmod +x "$STAGE_DIR/$BUNDLE_ROOT/Start Zoom Nuke.command"
-
-# Include preflight_check.sh in the release bundle so users can run it
-# before or after extracting the zip without needing the full repo.
-cp "$REPO_ROOT/tools/preflight_check.sh" "$STAGE_DIR/$BUNDLE_ROOT/"
-chmod +x "$STAGE_DIR/$BUNDLE_ROOT/preflight_check.sh"
 
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$STAGE_DIR/$BUNDLE_ROOT" "$ARCHIVE_PATH"
 
