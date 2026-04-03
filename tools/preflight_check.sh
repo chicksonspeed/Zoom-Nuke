@@ -84,10 +84,8 @@ fi
 # ---------------------------------------------------------------------------
 # 4. MDM / managed device detection
 # ---------------------------------------------------------------------------
-MDM_ENROLLED=false
 if command -v profiles >/dev/null 2>&1; then
   if profiles status -type enrollment 2>/dev/null | grep -q "MDM enrollment: Yes"; then
-    MDM_ENROLLED=true
     _warn "MDM enrolled — administrator/MDM policies may prevent some operations."
     _warn "  MAC spoofing, network changes, and sudo access may be blocked."
     _warn "  Consult your IT department before running on a managed device."
@@ -139,7 +137,6 @@ done
 # ---------------------------------------------------------------------------
 # 7. MAC spoofing capability
 # ---------------------------------------------------------------------------
-MAC_SPOOF_OK=false
 PRIMARY_IF=""
 if command -v networksetup >/dev/null 2>&1; then
   HPORTS=$(networksetup -listallhardwareports 2>/dev/null || true)
@@ -164,7 +161,6 @@ if [[ -n "$PRIMARY_IF" ]]; then
     else
       _ok "MAC spoofing should work on $PRIMARY_IF (current: $CURRENT_MAC)."
       _json_add "ok" "mac_spoof" "Interface $PRIMARY_IF available"
-      MAC_SPOOF_OK=true
     fi
   else
     _warn "Could not read MAC from $PRIMARY_IF — spoofing may fail."
