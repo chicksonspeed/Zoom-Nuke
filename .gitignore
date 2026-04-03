@@ -20,3 +20,4 @@ node_modules/
 *.token
 .env
 .env.*
+.claude/
