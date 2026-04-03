@@ -392,7 +392,7 @@ sudo scutil --set HostName "$SPOOF_NAME" 2>/dev/null \
 rm -rf "$HOME/Library/Caches/us.zoom.xos" 2>/dev/null || true
 rm -rf "$HOME/Library/Application Support/zoom.us/data"/*.db 2>/dev/null || true
 rm -f  "$HOME/Library/Application Support/zoom.us/data/viper.ini" 2>/dev/null || true
-exec "$ZOOM_BIN" "$@"
+"$ZOOM_BIN" "$@"
 PROTECTION_EOF
     chmod +x "$PROTECTION_SCRIPT"
     echo "✅ Protection script created (inline fallback): $PROTECTION_SCRIPT"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # zoom_protection.sh
 #
-# Hardware fingerprint protection wrapper for Zoom.
+# Hostname-spoofing launch wrapper for Zoom.
 # Spoofs the system hostname via scutil (so gethostname(2) returns the spoofed
 # value to all child processes, including Zoom). Restores the original names on
 # EXIT via trap so no permanent change is made even if Zoom crashes.
@@ -13,7 +13,7 @@
 
 set -uo pipefail
 
-ZOOM_BIN="/Applications/zoom.us.app/Contents/MacOS/zoom.us"
+ZOOM_BIN="${ZOOM_BIN:-/Applications/zoom.us.app/Contents/MacOS/zoom.us}"
 
 if [[ ! -x "$ZOOM_BIN" ]]; then
   echo "❌ Zoom executable not found at $ZOOM_BIN" >&2
@@ -66,4 +66,4 @@ rm -f  "$ZOOM_DATA/viper.ini"                       2>/dev/null || true
 
 # ── Launch Zoom (replaces this process; trap still fires on its exit) ─────
 echo "🚀 Launching Zoom..."
-exec "$ZOOM_BIN" "$@"
+"$ZOOM_BIN" "$@"
