@@ -1,6 +1,16 @@
 # 🔥 macOS Zoom Nuke & Reinstall Tool
 
+<p align="center">
+  <img src="zoom-nuke-icon.png" alt="Zoom Nuke Icon" width="128" />
+</p>
+
 > **"Ben from IT" approved Zoom cleanup and reinstallation script for macOS**
+
+## 📸 Screenshot
+
+<p align="center">
+  <img src="zoom-nuke-app.png" alt="Zoom Nuke App Screenshot" width="700" />
+</p>
 
 ## 📋 Overview
 
