@@ -10,6 +10,12 @@ extension ContentView {
     func startCleanup() {
         guard runState != .running else { return }
 
+        // If the user clicked "Run Again" right after cancelling, the 1.5-second
+        // deferred SIGTERM might not have fired yet. Cancel it so it doesn't kill
+        // the process we are about to launch.
+        pendingTerminate?.cancel()
+        pendingTerminate = nil
+
         guard let scriptURL = Bundle.main.url(forResource: "zoom_nuke_overkill", withExtension: "sh") else {
             runState = .failure
             setStatus("Could not find the embedded cleanup script in the app bundle.", kind: .error)
@@ -61,6 +67,12 @@ extension ContentView {
         processManager.onOutput = nil
         processManager.onExit   = nil
 
+        // If the user already clicked Cancel, don't overwrite that state.
+        // The process may have exited naturally while we were waiting for the
+        // SIGINT/SIGTERM to land, and we don't want to flash ".success" or
+        // ".failure" over a deliberate cancel.
+        guard runState != .cancelled else { return }
+
         switch exitCode {
         case 0:
             runState = .success
@@ -78,13 +90,24 @@ extension ContentView {
 
     func cancelOrClose() {
         if runState == .running {
+            // Nil out callbacks immediately so any in-flight terminationHandler
+            // dispatch cannot race with the state we set below.
+            processManager.onOutput = nil
+            processManager.onExit   = nil
+
             runState = .cancelled
             setStatus("Cancelling…", kind: .error)
             processManager.interrupt()
-            // Give the script a moment to handle SIGINT, then escalate to SIGTERM.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+
+            // Give the script a moment to handle SIGINT gracefully, then escalate
+            // to SIGTERM. Store the work item so startCleanup() can cancel it if
+            // the user immediately clicks "Run Again".
+            let work = DispatchWorkItem { [self] in
                 self.processManager.terminate()
+                self.pendingTerminate = nil
             }
+            pendingTerminate = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
         } else {
             closeWindow()
         }

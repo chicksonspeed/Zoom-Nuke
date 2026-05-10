@@ -17,6 +17,9 @@ struct ContentView: View {
     static let maxLiveLines = 80
 
     @StateObject var processManager = CleanupProcessManagerObservable()
+    /// Cancellable handle for the deferred SIGTERM issued after SIGINT on cancel.
+    /// Stored so startCleanup() can cancel it if the user immediately retries.
+    @State var pendingTerminate: DispatchWorkItem?
 
     var logFilePath: String {
         (NSHomeDirectory() as NSString).appendingPathComponent("zoom_fix.log")

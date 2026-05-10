@@ -57,13 +57,21 @@ bash "$APP_BUILDER" "$STAGE_DIR/$BUNDLE_ROOT"
 cp "$REPO_ROOT/zoom_nuke_overkill.sh"    "$STAGE_DIR/$BUNDLE_ROOT/cli/"
 cp "$REPO_ROOT/zoom_nuke.sh"             "$STAGE_DIR/$BUNDLE_ROOT/cli/"
 cp "$REPO_ROOT/Start Zoom Nuke.command"  "$STAGE_DIR/$BUNDLE_ROOT/cli/"
-cp "$REPO_ROOT/tools/preflight_check.sh" "$STAGE_DIR/$BUNDLE_ROOT/cli/"
 cp "$REPO_ROOT/README.md"                "$STAGE_DIR/$BUNDLE_ROOT/cli/"
+
+# REQUIRED: copy the tools/ subfolder that both shell scripts source at runtime.
+# zoom_nuke.sh and zoom_nuke_overkill.sh resolve TOOLS_DIR relative to their own
+# location ($SCRIPT_DIR/tools), so the folder must live next to them in cli/.
+# Without this, both scripts exit immediately with "Required library not found".
+cp -R "$REPO_ROOT/tools" "$STAGE_DIR/$BUNDLE_ROOT/cli/"
 
 chmod +x "$STAGE_DIR/$BUNDLE_ROOT/cli/zoom_nuke_overkill.sh"
 chmod +x "$STAGE_DIR/$BUNDLE_ROOT/cli/zoom_nuke.sh"
 chmod +x "$STAGE_DIR/$BUNDLE_ROOT/cli/Start Zoom Nuke.command"
-chmod +x "$STAGE_DIR/$BUNDLE_ROOT/cli/preflight_check.sh"
+chmod +x "$STAGE_DIR/$BUNDLE_ROOT/cli/tools/preflight_check.sh"
+chmod +x "$STAGE_DIR/$BUNDLE_ROOT/cli/tools/_zoom_core.sh"
+chmod +x "$STAGE_DIR/$BUNDLE_ROOT/cli/tools/mac_spoof.sh"
+chmod +x "$STAGE_DIR/$BUNDLE_ROOT/cli/tools/zoom_protection.sh"
 
 cat > "$STAGE_DIR/$BUNDLE_ROOT/START_HERE.txt" <<'EOF'
 Zoom Nuke - Quick Start

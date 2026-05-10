@@ -187,7 +187,7 @@ Spoofing commonly fails on Apple Silicon Wi-Fi due to Private Wi-Fi Address and 
 ### `~/.zoom_protection.sh`
 
 Installed from `tools/zoom_protection.sh`. When run before Zoom, it:
-1. Spoofs `HostName`, `ComputerName`, and `LocalHostName` via `scutil` using a random `MacBook-xxxxxxxx` name
+1. Spoofs `HostName`, `ComputerName`, and `LocalHostName` via `scutil` using a name built from the current macOS username, Mac model, and 8 random hex chars — e.g. `hampus-MacBookPro-3f9a1c7b`
 2. Registers a `trap EXIT INT TERM` to restore all three names when Zoom exits (or crashes)
 3. Wipes Zoom's residual `.db` and `viper.ini` files from `~/Library/Application Support/zoom.us/data`
 4. `exec`s Zoom, replacing itself so no zombie process is left
