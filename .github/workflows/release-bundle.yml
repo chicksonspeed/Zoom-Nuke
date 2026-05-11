@@ -36,7 +36,7 @@ jobs:
             ./tools/build_pkg_installer.sh "${{ github.event.release.tag_name }}"
 
       - name: Upload assets to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/*.zip
