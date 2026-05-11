@@ -22,6 +22,7 @@ MAC_SPOOF_COMPONENT_TAG="[mac-spoof]"
 MAC_SPOOF_RESTART_SLEEP_DOWN="${MAC_SPOOF_RESTART_SLEEP_DOWN:-1}"
 MAC_SPOOF_RESTART_SLEEP_UP="${MAC_SPOOF_RESTART_SLEEP_UP:-2}"
 MAC_SPOOF_MIN_MACOS_VERSION="${MAC_SPOOF_MIN_MACOS_VERSION:-10.15.0}"
+AIRPORT_BIN="${AIRPORT_BIN:-/System/Library/PrivateFrameworks/Apple80211.framework/Versions/Current/Resources/airport}"
 
 # Globals set by spoof_mac_address for callers to inspect.
 MAC_SPOOFED=${MAC_SPOOFED:-false}
@@ -271,6 +272,49 @@ spoof_mac_restart_ethernet() {
   return 1
 }
 
+spoof_mac_wifi_disconnect() {
+  # Usage: spoof_mac_wifi_disconnect IFACE NEW_MAC
+  # macOS 12.3+ requires disassociating from Wi-Fi before the MAC can be
+  # changed. Uses the private airport(1) binary; skips gracefully if not found.
+  #
+  # Returns:
+  #   0  — MAC spoof succeeded after disassociation
+  #   1  — preconditions not met (macOS < 12.3, or airport binary absent);
+  #          caller should fall through to a direct ifconfig attempt
+  #   1  — airport -z ran but spoof still failed
+  local iface="$1"
+  local new_mac="$2"
+
+  if [[ ! -x "$AIRPORT_BIN" ]]; then
+    mac_log_warn "airport binary not found at $AIRPORT_BIN; skipping Wi-Fi disassociate step"
+    return 1
+  fi
+
+  local macos_ver
+  macos_ver="$(sw_vers -productVersion 2>/dev/null || echo "0.0.0")"
+  local ver_num
+  ver_num="$(version_to_number "$macos_ver")"
+  local threshold
+  threshold="$(version_to_number "12.3.0")"
+
+  if (( 10#$ver_num < 10#$threshold )); then
+    mac_log_debug "macOS $macos_ver < 12.3; skipping airport disassociate step"
+    return 1  # Caller falls through to direct ifconfig
+  fi
+
+  mac_log_info "macOS 12.3+: disassociating from Wi-Fi before MAC change (expect a brief reconnect)..."
+  sudo "$AIRPORT_BIN" -z 2>/dev/null || mac_log_warn "airport -z failed (continuing)"
+  sleep 1
+
+  if spoof_mac_ifconfig "$iface" "$new_mac"; then
+    mac_log_info "MAC spoofed on $iface after Wi-Fi disassociation"
+    return 0
+  fi
+
+  mac_log_warn "MAC spoof failed on $iface even after Wi-Fi disassociation"
+  return 1
+}
+
 spoof_mac_address() {
   # Usage: spoof_mac_address IFACE INTERFACE_TYPE
   #
@@ -315,6 +359,17 @@ spoof_mac_address() {
   local new_mac
   new_mac="$(generate_random_laa_mac)"
   mac_log_info "Planned MAC change on $iface: $orig_mac -> $new_mac"
+
+  # macOS 12.3+ silently rejects ifconfig ether on Wi-Fi while associated.
+  # Attempt disassociation first; if preconditions aren't met the function
+  # returns 1 and we fall through to the direct ifconfig attempt below.
+  if [[ "$iface_type" == "Wi-Fi" ]]; then
+    if spoof_mac_wifi_disconnect "$iface" "$new_mac"; then
+      MAC_SPOOFED=true
+      MAC_SPOOF_REASON="MAC spoof succeeded via Wi-Fi disassociation method."
+      return 0
+    fi
+  fi
 
   if spoof_mac_ifconfig "$iface" "$new_mac"; then
     MAC_SPOOFED=true

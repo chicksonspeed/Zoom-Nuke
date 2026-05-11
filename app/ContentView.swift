@@ -21,9 +21,16 @@ struct ContentView: View {
     /// Stored so startCleanup() can cancel it if the user immediately retries.
     @State var pendingTerminate: DispatchWorkItem?
 
-    var logFilePath: String {
+    // Computed once — NSHomeDirectory() is stable for the app's lifetime.
+    static let logFilePath: String =
         (NSHomeDirectory() as NSString).appendingPathComponent("zoom_fix.log")
-    }
+
+    // Tracks log-file existence so the "Open Log" button enable/disable state
+    // is not recalculated with a synchronous filesystem call on every render.
+    // Updated by finishCleanup() and on first appear.
+    @State var logFileExists: Bool =
+        FileManager.default.fileExists(atPath:
+            (NSHomeDirectory() as NSString).appendingPathComponent("zoom_fix.log"))
 
     var body: some View {
         ZStack {
@@ -326,7 +333,7 @@ struct ContentView: View {
                         .foregroundColor(Color.white.opacity(0.65))
                 }
                 .buttonStyle(.plain)
-                .disabled(!FileManager.default.fileExists(atPath: logFilePath))
+                .disabled(!logFileExists)
                 .accessibilityLabel("Open log file")
                 .accessibilityHint("Opens ~/zoom_fix.log")
             }
@@ -341,8 +348,7 @@ struct ContentView: View {
                 .font(.system(size: 11))
                 .foregroundColor(Color.white.opacity(0.34))
             Button {
-                let logURL = URL(fileURLWithPath: NSHomeDirectory())
-                    .appendingPathComponent("zoom_fix.log")
+                let logURL = URL(fileURLWithPath: ContentView.logFilePath)
                 if FileManager.default.fileExists(atPath: logURL.path) {
                     NSWorkspace.shared.open(logURL)
                 } else {

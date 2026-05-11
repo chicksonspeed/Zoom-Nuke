@@ -444,7 +444,19 @@ core_download_and_install_zoom() {
       rm -f "$pkg"
       return 1
     fi
-    echo "✅ Package signature verified"
+    # Verify the package is signed specifically by Zoom Video Communications.
+    # pkgutil --check-signature only confirms a valid Apple-chained signature;
+    # it does not check WHO signed it. Grepping for the expected signer guards
+    # against a (highly unlikely, HTTPS-protected) MITM substituting a package
+    # signed by a different Developer ID certificate.
+    if ! echo "$sig_info" | grep -q "Zoom Video Communications"; then
+      echo "❌ Package signature issuer check failed — not signed by Zoom Video Communications."
+      echo "   pkgutil output:"
+      echo "$sig_info" | sed 's/^/   /'
+      rm -f "$pkg"
+      return 1
+    fi
+    echo "✅ Package signature verified (Zoom Video Communications)"
 
     local pkg_size
     pkg_size=$(stat -f%z "$pkg" 2>/dev/null || stat -c%s "$pkg" 2>/dev/null || echo "0")

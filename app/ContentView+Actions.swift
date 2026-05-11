@@ -76,12 +76,15 @@ extension ContentView {
         switch exitCode {
         case 0:
             runState = .success
+            logFileExists = true
             setStatus("Cleanup completed successfully. Check ~/zoom_fix.log.", kind: .success)
         case 130:
             runState = .cancelled
+            logFileExists = FileManager.default.fileExists(atPath: ContentView.logFilePath)
             setStatus("Cleanup cancelled. You can run it again any time.", kind: .error)
         default:
             runState = .failure
+            logFileExists = FileManager.default.fileExists(atPath: ContentView.logFilePath)
             setStatus("Cleanup failed (exit \(exitCode)). See ~/zoom_fix.log.", kind: .error)
         }
     }
@@ -122,7 +125,7 @@ extension ContentView {
     }
 
     func openLogFile() {
-        let url = URL(fileURLWithPath: logFilePath)
+        let url = URL(fileURLWithPath: ContentView.logFilePath)
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 

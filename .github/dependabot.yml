@@ -1,0 +1,20 @@
+# Dependabot keeps GitHub Actions pinned to specific commit SHAs and opens
+# PRs when newer versions are available. This prevents a mutable tag (e.g.
+# @v2) from silently pointing to different code after a tag is force-pushed
+# on a third-party action repository.
+#
+# After Dependabot opens its first PR, the workflow files will be updated to
+# use full 40-character SHAs (e.g. uses: softprops/action-gh-release@<sha>)
+# with the version tag kept as a comment for human readability.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "ci"

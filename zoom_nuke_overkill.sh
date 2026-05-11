@@ -333,6 +333,13 @@ deep_clean() {
     "$HOME/Library/Application Support"
     "/Library/Caches"
   )
+  # Scope the search to known Zoom reverse-DNS prefixes rather than the broad
+  # "*zoom*" glob, which could accidentally match unrelated apps whose bundle
+  # identifier or folder name contains the word "zoom" (e.g. photo editors,
+  # games, camera utilities). Zoom's known identifiers are:
+  #   us.zoom.xos       — main macOS client
+  #   com.zoom.us       — alternate/enterprise identifier
+  #   ZoomPhone, ZoomRooms are also com.zoom.* prefixed
   local root match
   for root in "${roots[@]}"; do
     check_cancel
@@ -341,7 +348,8 @@ deep_clean() {
       echo "🧹 Deep removing: $match"
       run rm -rf "$match" 2>/dev/null || true
     done < <(find "$root" -maxdepth 5 \
-      \( -iname "*zoom*" -o -iname "*us.zoom*" \) -print0 2>/dev/null || true)
+      \( -iname "us.zoom*" -o -iname "com.zoom*" -o -iname "zoom.us*" \) \
+      -print0 2>/dev/null || true)
   done
   echo "✅ Deep artifact cleanup complete"
 }

@@ -26,8 +26,18 @@ if [[ ! -f "$VERSION_FILE" ]]; then
   exit 1
 fi
 APP_VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
-# CFBundleVersion must be numeric-only; strip dots and non-digits.
-BUNDLE_VERSION="$(echo "$APP_VERSION" | tr -d '.')"
+# CFBundleVersion must be a monotonically increasing numeric string.
+# Stripping dots (e.g. "3.2.1" → "321") collides when minor or patch
+# reaches a second digit (3.2.10 == 3.21.0 == 3210). Instead, zero-pad
+# each component to three digits so the ordering is always unambiguous:
+#   3.2.1  → 003002001
+#   3.10.0 → 003010000  (never collides with 3.1.0 → 003001000)
+_ver_major="$(echo "$APP_VERSION" | cut -d. -f1)"
+_ver_minor="$(echo "$APP_VERSION" | cut -d. -f2)"
+_ver_patch="$(echo "$APP_VERSION" | cut -d. -f3)"
+BUNDLE_VERSION="$(printf '%03d%03d%03d' \
+  "${_ver_major:-0}" "${_ver_minor:-0}" "${_ver_patch:-0}")"
+unset _ver_major _ver_minor _ver_patch
 
 if [[ "$(uname)" != "Darwin" ]]; then
   echo "This build step requires macOS (xcrun/swiftc)." >&2

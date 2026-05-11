@@ -178,11 +178,14 @@ Prints every destructive command prefixed with `[DRY RUN]` instead of executing 
 The MAC library (`tools/mac_spoof.sh`) uses `openssl rand -hex 5` for cryptographically strong randomness — never `$RANDOM` (a 15-bit PRNG that repeats for same-second invocations). The backup file stores the interface name and a format version number so that stale backups from different hardware or a different interface are detected and rejected on restore.
 
 Spoofing methods tried in order:
-1. `ifconfig <iface> ether <new_mac>`
-2. `ifconfig <iface> lladdr <new_mac>`
-3. Ethernet only: interface down → change MAC → up → verify
+1. Wi-Fi on macOS 12.3+: `airport -z` (disassociate) → `ifconfig <iface> ether <new_mac>`
+2. `ifconfig <iface> ether <new_mac>`
+3. `ifconfig <iface> lladdr <new_mac>`
+4. Ethernet only: interface down → change MAC → up → verify
 
-Spoofing commonly fails on Apple Silicon Wi-Fi due to Private Wi-Fi Address and SIP. The script logs the reason and continues.
+On macOS 12.3+, the Wi-Fi driver silently rejects `ifconfig ether` while the interface is associated with a network (the command exits 0 but the MAC does not change). The library calls the private `airport -z` binary to force disassociation first, then retries. Expect a 2–5 second Wi-Fi reconnect delay when this path is taken. The `airport` binary path is detected at runtime via `$AIRPORT_BIN` and the step is skipped gracefully if it is not found.
+
+Spoofing commonly fails on Apple Silicon Wi-Fi and 2018+ MacBook Pro Wi-Fi due to driver-level enforcement. The script logs the reason and continues.
 
 ### `~/.zoom_protection.sh`
 
@@ -404,15 +407,22 @@ On MDM-enrolled or IT-managed Macs:
 
 MAC address spoofing is **best-effort** and unreliable on modern macOS. The table below summarises what works:
 
-| Hardware | Interface | Expected Result |
-|----------|-----------|-----------------|
-| Intel Mac | Wi-Fi | Usually works (SIP must allow `ifconfig`) |
-| Intel Mac | Ethernet | Usually works |
-| Apple Silicon (M1/M2/M3/M4) | Wi-Fi | **Does not work** — macOS ignores `ifconfig ether` on Wi-Fi |
-| Apple Silicon | Ethernet (USB adapter) | Usually works |
-| Any Mac | Wi-Fi with "Private Wi-Fi Address" enabled | Does not work (macOS overrides MAC at driver level) |
+| Hardware | macOS | Interface | Expected Result |
+|----------|-------|-----------|-----------------|
+| Intel Mac | 10.15–12.2 | Wi-Fi | ✅ Usually works — direct `ifconfig` sufficient |
+| Intel Mac | 12.3+ | Wi-Fi | ✅ Works — `airport -z` disassociation step runs automatically (expect 2–5 s reconnect) |
+| Intel Mac (2018+ MacBook Pro) | Any | Wi-Fi | ❌ Silent fail — Broadcom Wi-Fi driver blocks it at the hardware level |
+| Intel Mac | Any | Ethernet | ✅ Usually works |
+| Apple Silicon (M1/M2/M3/M4) | Any | Wi-Fi | ❌ Blocked — driver-level enforcement, no known userspace workaround |
+| Apple Silicon | Any | Ethernet (USB adapter) | ✅ Usually works |
+| Any Mac | Any | Wi-Fi with "Private Wi-Fi Address" enabled | ❌ macOS overrides the MAC at the driver level |
+| Third-party USB Ethernet (AQC-107 etc.) | Sonoma+ | Ethernet | ❌ Silent fail — non-Apple chipsets rejected on newer OS |
 
-**The script does not attempt to "fix" this limitation.** It detects the environment at runtime, logs the reason, and continues with the remaining cleanup steps. Use `--dry-run` to verify behaviour before running on a specific machine.
+> **MAC address spoofing — Limitations**
+>
+> On macOS 12.3+, Zoom Nuke automatically disassociates from Wi-Fi before attempting the change. Expect a 2–5 second reconnect delay. On MacBook Pro models from 2018 and later, and on all Apple Silicon Macs, Wi-Fi MAC spoofing cannot be performed in userspace. When spoofing is not supported or fails, Zoom Nuke logs the reason and continues — hostname spoofing (which works on all hardware) is used as a complementary measure.
+
+**The script detects the environment at runtime, logs the reason, and continues with the remaining cleanup steps.** Use `--dry-run` to verify behaviour before running on a specific machine.
 
 To check before running:
 

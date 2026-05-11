@@ -20,8 +20,6 @@ shellcheck --severity=warning \
   tools/build_pkg_installer.sh tools/preflight_check.sh tools/validate.sh
 ```
 
-There are two pre-existing SC2034 warnings in `tools/preflight_check.sh` (unused variables `MDM_ENROLLED` and `MAC_SPOOF_OK`). These are used in the `--json` output path and are false positives.
-
 ### Validate (smoke tests + syntax)
 
 ```bash
