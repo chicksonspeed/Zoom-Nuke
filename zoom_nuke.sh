@@ -67,6 +67,15 @@ main() {
     esac
   done
 
+  # Pre-warm sudo credentials before redirecting stdout/stderr through tee.
+  # The exec below creates a process substitution that can disassociate from
+  # the controlling TTY on some macOS/bash builds, causing subsequent sudo
+  # calls to fail with "a terminal is required".
+  if [[ "${DRY_RUN:-false}" != "true" ]]; then
+    echo "🔐 Sudo access is required. Enter your macOS password if prompted."
+    sudo -v || { echo "❌ Could not obtain sudo privileges. Run this script from a Terminal window." >&2; exit 1; }
+  fi
+
   # Logging — after flag parsing so --version/--help skip it.
   exec > >(tee -i "$LOG") 2>&1
   echo "zoom_nuke.sh v$VERSION — $(date)"
