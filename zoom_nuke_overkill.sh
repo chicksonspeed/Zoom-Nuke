@@ -465,6 +465,17 @@ maybe_launch_zoom() {
 # ---------------------------------------------------------------------------
 main() {
   parse_args "$@"
+
+  # Pre-warm sudo credentials before redirecting stdout/stderr through tee.
+  # The exec inside setup_logging() creates a process substitution that can
+  # disassociate from the controlling TTY on some macOS/bash builds, causing
+  # subsequent sudo calls to fail with "a terminal is required".
+  # Caching the credential here (while the TTY is still intact) avoids that.
+  if [[ "${DRY_RUN:-false}" != "true" && "${AUDIT_MODE:-false}" != "true" && "${RESTORE_MODE:-false}" != "true" ]]; then
+    echo "🔐 Sudo access is required. Enter your macOS password if prompted."
+    sudo -v || { echo "❌ Could not obtain sudo privileges. Run this script from a Terminal window." >&2; exit 1; }
+  fi
+
   setup_logging
 
   if [[ "$AUDIT_MODE" == "true" ]]; then
