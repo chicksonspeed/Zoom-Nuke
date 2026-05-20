@@ -76,8 +76,8 @@ let package = Package(
         .target(
             name: "ZoomNukeCore",
             sources: [
-                "Sources/ZoomNukeCore/DiagnosticLogEntry.swift",
-                "Sources/ZoomNukeCore/DiagnosticRedactor.swift",
+                "DiagnosticLogEntry.swift",
+                "DiagnosticRedactor.swift",
             ]
         ),
 

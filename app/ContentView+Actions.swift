@@ -129,7 +129,7 @@ extension ContentView {
             logFileExists = true
             DiagnosticLogger.shared.success("Cleanup completed successfully", subsystem: "app")
             DiagnosticLogger.shared.endSession(exitCode: exitCode, runState: .success, mode: selectedMode)
-            setStatus("Cleanup completed successfully. Use "Copy Log" to share diagnostics.", kind: .success)
+            setStatus("Cleanup completed successfully. Use \"Copy Log\" to share diagnostics.", kind: .success)
         case 130:
             runState = .cancelled
             logFileExists = FileManager.default.fileExists(atPath: ContentView.logFilePath)
@@ -143,10 +143,10 @@ extension ContentView {
                 "Cleanup failed — exit \(exitCode)",
                 subsystem: "app",
                 exitCode: Int(exitCode),
-                suggestedFix: "Use "Copy Log" or "Export Log" to send a diagnostic report."
+                suggestedFix: "Use \"Copy Log\" or \"Export Log\" to send a diagnostic report."
             )
             DiagnosticLogger.shared.endSession(exitCode: exitCode, runState: .failure, mode: selectedMode)
-            setStatus("Cleanup failed (exit \(exitCode)). Use "Copy Log" to get diagnostics.", kind: .error)
+            setStatus("Cleanup failed (exit \(exitCode)). Use \"Copy Log\" to get diagnostics.", kind: .error)
         }
     }
 
