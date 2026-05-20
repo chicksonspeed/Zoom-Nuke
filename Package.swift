@@ -75,7 +75,11 @@ let package = Package(
         // tests free of AppKit/SwiftUI dependencies.
         .target(
             name: "ZoomNukeCore",
-            path: "Sources/ZoomNukeCore"
+            path: "Sources/ZoomNukeCore",
+            sources: [
+                "DiagnosticLogEntry.swift",
+                "DiagnosticRedactor.swift",
+            ]
         ),
 
         // MARK: - XCTest suite
