@@ -58,8 +58,8 @@ run_tests() {
   fi
 
   # Skip tests that require macOS tools if not on Darwin.
-  # shellcheck disable=SC2034
   local is_macos=false
+  # shellcheck disable=SC2034
   [[ "$(uname 2>/dev/null)" == "Darwin" ]] && is_macos=true
 
   # ------------------------------------------------------------------
