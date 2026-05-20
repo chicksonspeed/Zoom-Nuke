@@ -252,6 +252,110 @@ The app runs the script **in-process** using `Process + Pipe` — no Terminal wi
 - Respect applicable laws and regulations
 - Consider corporate policies and terms of service
 
+## 🩺 Diagnostic Logs
+
+### Where Logs Are Stored
+
+Every run of Zoom Nuke creates a structured diagnostic log at:
+
+```
+~/Library/Logs/Zoom Nuke/latest.log
+```
+
+When a new run begins, the previous `latest.log` is automatically archived to a timestamped file:
+
+```
+~/Library/Logs/Zoom Nuke/zoom-nuke-YYYYMMDD-HHMMSS.log
+```
+
+The legacy `~/zoom_fix.log` is still written for backwards compatibility.
+
+The diagnostic log captures:
+- A session header (app version, macOS version, run mode)
+- Structured entries from each major step: `[YYYY-MM-DD HH:MM:SS] [LEVEL] [component] message`
+- Exit codes, durations, and suggested fixes for each failed command
+- A **Diagnostic Summary** block at the end of every run
+
+The summary block looks like this:
+
+```
+========== Diagnostic Summary ==========
+Generated:      2026-05-20 10:31:02
+Result:         FAILED (exit 1)
+Failed Step:    Download Zoom
+Failed Command: curl -L ... zoom.us/client/latest/Zoom.pkg
+Exit Code:      1
+Likely Cause:   Network failure or DNS resolution error
+Suggested Fix:  Check your internet connection and try again
+Script Version: 3.2.1
+macOS Version:  14.1
+Architecture:   arm64
+Run Mode:       standard
+Log Path:       ~/Library/Logs/Zoom Nuke/latest.log
+=======================================
+```
+
+### How To Export Logs
+
+**From the app (recommended):**
+
+After any run (success, failure, or cancel), the **Diagnostic Report** row appears at the bottom of the app window with three buttons:
+
+| Button | What it does |
+|--------|-------------|
+| **Copy Log** | Copies a redacted report to the clipboard. No privacy prompt — the report is pre-redacted. |
+| **Export Log** | Opens a save panel. Supported formats: `.log`, `.txt`. Shows a privacy review prompt first. |
+| **Send Report** | Opens your default Mail app with the report pre-filled in the body. Shows a privacy review prompt first. |
+
+**From Finder:**
+Click the `~/Library/Logs/Zoom Nuke/latest.log` link at the bottom of the app window to reveal the file in Finder.
+
+**From Terminal:**
+```bash
+cat ~/Library/Logs/Zoom\ Nuke/latest.log
+open ~/Library/Logs/Zoom\ Nuke/
+```
+
+### Privacy and Redaction
+
+Before any report leaves your device (copy, export, or send), Zoom Nuke automatically redacts:
+
+| Data type | What it becomes |
+|-----------|----------------|
+| `/Users/yourname/…` | `~/…` |
+| Email addresses | `[email]` |
+| IPv4 / IPv6 addresses | `[ip]` |
+| Hardware UUID | `[uuid]` |
+| Hardware serial numbers | `[redacted]` |
+| Known secret env-var values (PASSWORD, TOKEN, …) | `[redacted]` |
+
+The following are **not** redacted because they are needed for support:
+- macOS version and architecture
+- Application paths outside your home directory
+- Exit codes, command names, step names
+- Timestamps
+
+**You will always see a prompt before any export or send action:**
+
+> "This report may contain local file paths, hardware information, macOS version details, and command output from your system. Review the content before sending it to anyone."
+
+No log is ever transmitted automatically or silently.
+
+### How To Send a Support Report
+
+If Zoom Nuke fails and you want to report the issue:
+
+1. Run the cleanup (or reproduce the failure).
+2. After the run, click **Copy Log** in the Diagnostic Report row.
+3. Paste the report into a GitHub issue at [chicksonspeed/Zoom-Nuke](https://github.com/chicksonspeed/Zoom-Nuke/issues/new).
+4. Describe what you expected to happen and what happened instead.
+
+Or use **Send Report** to open a pre-filled email draft.
+
+If the app fails before launching (e.g. Gatekeeper blocks it), attach `~/Library/Logs/Zoom Nuke/latest.log` manually.
+
+---
+
 ## 🔍 Troubleshooting
 
 **MAC Spoofing Fails:**
@@ -473,18 +577,30 @@ zoom nuke/
 ├── zoom_nuke.sh                     # Simple edition (fewer features, same safety)
 ├── zoom_nuke_overkill.sh            # Full-featured main script
 ├── Start Zoom Nuke.command          # Double-click terminal launcher (fallback)
+├── DIAGNOSTIC_TESTING.md           # Manual testing checklist for the diagnostic system
 ├── app/
-│   ├── ZoomNukeUI.swift             # SwiftUI app (single file, no Xcode project)
-│   └── ZoomNuke.icns                # App icon (included in repo; placeholder auto-generated if absent)
+│   ├── ZoomNukeApp.swift            # @main App entry point
+│   ├── ContentView.swift            # Main SwiftUI view (includes Diagnostic Report row)
+│   ├── ContentView+Actions.swift    # Cleanup actions; wires DiagnosticLogger
+│   ├── CleanupProcessManager.swift  # Process/pipe ownership
+│   ├── AppDelegate.swift            # Window styling
+│   ├── Models.swift                 # Layout constants, CleanMode, RunState, etc.
+│   ├── ModeRow.swift                # Mode selection row component
+│   ├── DiagnosticLogEntry.swift     # Structured log entry value type
+│   ├── DiagnosticLogger.swift       # Thread-safe logger; writes ~/Library/Logs/Zoom Nuke/
+│   ├── DiagnosticReport.swift       # Builds and exports the diagnostic report
+│   ├── DiagnosticRedactor.swift     # Privacy redaction (paths, email, UUID, serial, IPs)
+│   └── ZoomNuke.icns                # App icon
 ├── tools/
 │   ├── _zoom_core.sh                # Shared library (sourced by both scripts)
+│   ├── _shared_logging.sh           # Diagnostic logging helpers (log_*, run_logged_command, etc.)
 │   ├── mac_spoof.sh                 # MAC spoofing library (sourced at runtime)
 │   ├── zoom_protection.sh           # Zoom launch wrapper with hostname spoofing
-│   ├── build_macos_app.sh           # Builds Zoom Nuke.app; supports Developer ID signing + notarization
+│   ├── build_macos_app.sh           # Builds Zoom Nuke.app; bundles _shared_logging.sh
 │   ├── build_release_bundle.sh      # Packages app + scripts into a release .zip
 │   ├── build_pkg_installer.sh       # Builds a .pkg installer for enterprise/MDM deployment
 │   ├── preflight_check.sh           # Environment preflight: SIP, MDM, sudo, MAC spoof, disk, network
-│   └── validate.sh                  # Dry-run validation + structure smoke tests
+│   └── validate.sh                  # Structure + diagnostic logging smoke tests
 └── .github/workflows/
     ├── pr-validate.yml              # shellcheck, build, validate, preflight on every PR
     └── release-bundle.yml           # Auto-builds .zip + .pkg on GitHub release publish

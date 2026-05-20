@@ -44,14 +44,21 @@ if [[ "$(uname)" != "Darwin" ]]; then
   exit 1
 fi
 
-# Collect all Swift source files from app/.
+# Collect all Swift source files.
+# Sources span two directories:
+#   app/                   — SwiftUI / AppKit app layer
+#   Sources/ZoomNukeCore/  — Pure-Foundation types (DiagnosticLogEntry, DiagnosticRedactor)
+#
+# Both directories are compiled in a single swiftc invocation so all types are
+# visible to each other without `import` statements.
 # Use a glob rather than find+mapfile so it works on bash 3.2 (macOS default).
+CORE_SOURCES_DIR="$REPO_ROOT/Sources/ZoomNukeCore"
 SWIFT_SOURCES=()
-for f in "$APP_SOURCES_DIR"/*.swift; do
+for f in "$APP_SOURCES_DIR"/*.swift "$CORE_SOURCES_DIR"/*.swift; do
   [[ -f "$f" ]] && SWIFT_SOURCES+=("$f")
 done
 if [[ ${#SWIFT_SOURCES[@]} -eq 0 ]]; then
-  echo "❌ No Swift source files found in $APP_SOURCES_DIR" >&2
+  echo "❌ No Swift source files found in $APP_SOURCES_DIR or $CORE_SOURCES_DIR" >&2
   exit 1
 fi
 echo "Swift sources (${#SWIFT_SOURCES[@]}):"
@@ -196,6 +203,7 @@ chmod +x "$APP_PATH/Contents/Resources/zoom_nuke_overkill.sh"
 for tool_script in \
     "$TOOLS_SOURCE/_zoom_core.sh" \
     "$TOOLS_SOURCE/mac_spoof.sh" \
+    "$TOOLS_SOURCE/_shared_logging.sh" \
     "$TOOLS_SOURCE/zoom_protection.sh"; do
   if [[ -f "$tool_script" ]]; then
     cp "$tool_script" "$APP_PATH/Contents/Resources/tools/"

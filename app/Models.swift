@@ -65,6 +65,38 @@ enum RunState {
     case idle, running, success, failure, cancelled
 }
 
+// MARK: - Cleanup Progress
+
+/// Tracks determinate progress through the cleanup phases.
+/// Populated by parsing `[PROGRESS] N/T label` markers emitted to stdout
+/// by `log_progress()` in `_shared_logging.sh`.
+struct CleanupProgress {
+    let step:  Int
+    let total: Int
+    let label: String
+
+    /// 0.0 – 1.0 fraction for `ProgressView(value:)`.
+    var fraction: Double {
+        guard total > 0 else { return 0 }
+        return min(1.0, Double(step) / Double(total))
+    }
+
+    /// Whole-number percentage for the label ("42%").
+    var percent: Int { Int((fraction * 100).rounded()) }
+}
+
+// MARK: - Live Log Line
+
+/// A single line of live output from the cleanup script.
+/// Wrapping the string in a struct with a stable UUID means SwiftUI can
+/// diff the ForEach correctly when old lines are dropped from the ring
+/// buffer — without it, shifting offsets cause every row to re-render
+/// and animate on every truncation.
+struct LiveLine: Identifiable {
+    let id   = UUID()
+    let text: String
+}
+
 // MARK: - Status
 
 enum StatusKind {

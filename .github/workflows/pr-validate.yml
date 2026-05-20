@@ -6,6 +6,9 @@ on:
     branches: [main]
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # 1. ShellCheck — static linting for all shell scripts
+  # ---------------------------------------------------------------------------
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest
@@ -28,8 +31,91 @@ jobs:
             tools/build_release_bundle.sh \
             tools/build_pkg_installer.sh \
             tools/preflight_check.sh \
-            tools/validate.sh
+            tools/validate.sh \
+            tests/shell/run_tests.sh \
+            tests/shell/test_logging.sh \
+            tests/shell/test_zoom_core.sh
 
+  # ---------------------------------------------------------------------------
+  # 2. Source-structure guard (CR6 improvement 1)
+  #
+  # Fast, dependency-free check that:
+  #   • The canonical core files exist in Sources/ZoomNukeCore/
+  #   • They have NOT been accidentally re-added to app/
+  #   • Package.swift lists both ZoomNukeCore and ZoomNukeTests targets
+  #
+  # Runs on ubuntu-latest (no Xcode/macOS needed) so it completes in ~10s
+  # and gives an immediate signal on any structural regression.
+  # ---------------------------------------------------------------------------
+  source-guard:
+    name: Source structure guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify canonical core files exist in Sources/ZoomNukeCore/
+        run: |
+          fail=0
+          for f in \
+            Sources/ZoomNukeCore/DiagnosticLogEntry.swift \
+            Sources/ZoomNukeCore/DiagnosticRedactor.swift
+          do
+            if [[ -f "$f" ]]; then
+              echo "✅ Canonical source present: $f"
+            else
+              echo "❌ Missing canonical source: $f"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Guard against re-addition to app/ (no duplicates)
+        run: |
+          fail=0
+          for f in \
+            app/DiagnosticLogEntry.swift \
+            app/DiagnosticRedactor.swift
+          do
+            if [[ -f "$f" ]]; then
+              echo "❌ Duplicate detected in app/ (canonical copy is Sources/ZoomNukeCore/): $f"
+              echo "   Remove the app/ copy — Sources/ZoomNukeCore/ is the single source of truth."
+              fail=1
+            else
+              echo "✅ Not duplicated in app/: $f"
+            fi
+          done
+          exit $fail
+
+      - name: Verify Package.swift declares both library and test targets
+        run: |
+          fail=0
+          for target in ZoomNukeCore ZoomNukeTests; do
+            if grep -q "$target" Package.swift; then
+              echo "✅ Package.swift declares: $target"
+            else
+              echo "❌ Package.swift missing target: $target"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Verify Package.swift sources list includes ZoomNukeCore files
+        run: |
+          for f in \
+            "Sources/ZoomNukeCore/DiagnosticLogEntry.swift" \
+            "Sources/ZoomNukeCore/DiagnosticRedactor.swift"
+          do
+            if grep -q "$f" Package.swift; then
+              echo "✅ Package.swift sources include: $f"
+            else
+              echo "❌ Package.swift sources missing: $f — add it to the ZoomNuke executable sources list"
+              exit 1
+            fi
+          done
+
+  # ---------------------------------------------------------------------------
+  # 3. Swift build — compile check (not tests; ensures app still builds)
+  # ---------------------------------------------------------------------------
   build-swift:
     name: Build macOS app
     runs-on: macos-latest
@@ -44,6 +130,43 @@ jobs:
           swift build 2>&1
           echo "✅ Swift build succeeded"
 
+  # ---------------------------------------------------------------------------
+  # 4. Swift tests — XCTest suite for DiagnosticLogEntry and DiagnosticRedactor
+  # ---------------------------------------------------------------------------
+  test-swift:
+    name: Swift unit tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Run Swift tests
+        run: |
+          swift test --filter ZoomNukeTests 2>&1
+          echo "✅ Swift tests passed"
+
+  # ---------------------------------------------------------------------------
+  # 5. Shell tests — bash test suite for _shared_logging.sh and _zoom_core.sh
+  # ---------------------------------------------------------------------------
+  test-shell:
+    name: Shell unit tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Make test runner executable
+        run: chmod +x tests/shell/run_tests.sh
+
+      - name: Run shell tests
+        run: |
+          bash tests/shell/run_tests.sh --verbose
+          echo "✅ Shell tests passed"
+
+  # ---------------------------------------------------------------------------
+  # 6. Validate — dry-run & structure validation (existing job, unchanged)
+  # ---------------------------------------------------------------------------
   validate:
     name: Dry-run & structure validation
     runs-on: macos-latest
@@ -55,6 +178,9 @@ jobs:
           chmod +x tools/validate.sh
           ./tools/validate.sh --verbose
 
+  # ---------------------------------------------------------------------------
+  # 7. Preflight — environment check (existing job, unchanged)
+  # ---------------------------------------------------------------------------
   preflight:
     name: Preflight environment check
     runs-on: macos-latest
@@ -66,3 +192,95 @@ jobs:
         run: |
           chmod +x tools/preflight_check.sh
           ./tools/preflight_check.sh || [[ $? -eq 2 ]]
+
+  # ---------------------------------------------------------------------------
+  # 8. End-to-end dry-run smoke test (CR6 improvement 3)
+  #
+  # Runs zoom_nuke_overkill.sh --dry-run --force end-to-end on a real macOS
+  # runner and asserts observable outputs without touching any real data:
+  #   • Process exits 0
+  #   • [DRY RUN] markers appear (confirming no destructive commands ran)
+  #   • Diagnostic summary block is emitted
+  #   • latest.log is created at the expected path
+  #   • No Zoom data directories were actually modified
+  #
+  # This is the highest-value single test: it exercises the full execution path
+  # from script entry through library sourcing to summary emission — without
+  # requiring Zoom to be installed or any admin privileges.
+  # ---------------------------------------------------------------------------
+  e2e-dry-run:
+    name: End-to-end dry-run smoke test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Make scripts executable
+        run: |
+          chmod +x zoom_nuke_overkill.sh
+          chmod +x tools/_zoom_core.sh
+          chmod +x tools/mac_spoof.sh
+          chmod +x tools/_shared_logging.sh
+
+      - name: Run full script in dry-run mode
+        id: dry_run
+        run: |
+          set -uo pipefail
+          output="$(bash zoom_nuke_overkill.sh --dry-run --force 2>&1)" || {
+            echo "❌ zoom_nuke_overkill.sh --dry-run --force exited non-zero"
+            echo "$output"
+            exit 1
+          }
+          echo "output<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$output"     >> "$GITHUB_OUTPUT"
+          echo "EOF"         >> "$GITHUB_OUTPUT"
+          echo "$output"
+
+      - name: Assert [DRY RUN] markers present
+        run: |
+          if echo "${{ steps.dry_run.outputs.output }}" | grep -q '\[DRY RUN\]'; then
+            echo "✅ [DRY RUN] markers found in output"
+          else
+            echo "❌ No [DRY RUN] markers — destructive commands may have run"
+            exit 1
+          fi
+
+      - name: Assert diagnostic summary block emitted
+        run: |
+          if echo "${{ steps.dry_run.outputs.output }}" | grep -q 'Diagnostic Summary'; then
+            echo "✅ Diagnostic summary block present"
+          else
+            echo "❌ Diagnostic summary block missing — write_diagnostic_summary may not have run"
+            exit 1
+          fi
+
+      - name: Assert latest.log was created
+        run: |
+          log_path="$HOME/Library/Logs/Zoom Nuke/latest.log"
+          if [[ -f "$log_path" ]]; then
+            echo "✅ latest.log created at: $log_path"
+            wc -l < "$log_path"
+          else
+            echo "❌ latest.log not found at: $log_path"
+            exit 1
+          fi
+
+      - name: Assert no Zoom data directories were created or modified
+        run: |
+          fail=0
+          zoom_dirs=(
+            "$HOME/Library/Application Support/zoom.us"
+            "$HOME/Library/Caches/us.zoom.xos"
+            "$HOME/Library/Preferences/us.zoom.xos.plist"
+            "$HOME/Library/Logs/zoom.us"
+            "$HOME/Library/LaunchAgents/us.zoom.xos.plist"
+          )
+          for d in "${zoom_dirs[@]}"; do
+            if [[ -e "$d" ]]; then
+              echo "❌ Zoom data path exists after dry-run — something was not skipped: $d"
+              fail=1
+            fi
+          done
+          if [[ $fail -eq 0 ]]; then
+            echo "✅ No Zoom data directories created or modified"
+          fi
+          exit $fail

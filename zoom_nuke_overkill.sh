@@ -23,6 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 TOOLS_DIR="$SCRIPT_DIR/tools"
 CORE_LIB="$TOOLS_DIR/_zoom_core.sh"
 MAC_SPOOF_LIB="$TOOLS_DIR/mac_spoof.sh"
+SHARED_LOG_LIB="$TOOLS_DIR/_shared_logging.sh"
 PROTECTION_SCRIPT_SRC="$TOOLS_DIR/zoom_protection.sh"
 PROTECTION_SCRIPT="$HOME/.zoom_protection.sh"
 LOG="$HOME/zoom_fix.log"
@@ -46,13 +47,82 @@ else
   exit 1
 fi
 
+# Shared diagnostic logging library — soft dependency; script continues without it.
+if [[ -f "$SHARED_LOG_LIB" ]]; then
+  # shellcheck source=/dev/null
+  . "$SHARED_LOG_LIB"
+else
+  echo "⚠️  Shared logging library not found: $SHARED_LOG_LIB (continuing without structured logs)" >&2
+  # Stub out functions so callers never fail on missing commands.
+  log_info()    { :; }
+  log_step()    { :; }
+  log_success() { :; }
+  log_warn()    { :; }
+  log_error()   { :; }
+  log_debug()   { :; }
+  run_logged_command() { local _s="$1"; shift; "$@"; }
+  redact_log_line()    { printf '%s\n' "$1"; }
+  write_diagnostic_summary() { :; }
+  log_progress()       { :; }
+  _diag_open()  { :; }
+  _diag_close() { :; }
+fi
+
+# ---------------------------------------------------------------------------
+# _restore_silently DIR
+# Non-interactive restore used by the auto-restore-on-failure ERR trap.
+# Unlike restore_mode(), this never prompts and always runs with real commands
+# (not the dry-run wrapper) because it is only called after a genuine failure.
+# ---------------------------------------------------------------------------
+_restore_silently() {
+  local backup_dir="$1"
+  [[ -d "$backup_dir" ]] || return 1
+
+  echo "🔄 Auto-restoring Zoom data from backup: $backup_dir"
+  local count=0 dir entry_base src
+  for dir in "${ZOOM_DATA_DIRS[@]}"; do
+    entry_base="$(basename "$dir")"
+    src="$backup_dir/$entry_base"
+    if [[ -e "$src" ]]; then
+      mkdir -p "$(dirname "$dir")" 2>/dev/null || true
+      if cp -r "$src" "$dir" 2>/dev/null; then
+        echo "  ♻️  Restored: $dir"
+        (( count++ )) || true
+      else
+        echo "  ⚠️  Could not restore: $dir"
+      fi
+    fi
+  done
+  echo "✅ Auto-restore complete: $count item(s) restored from backup."
+}
+
 # ---------------------------------------------------------------------------
 # ERR trap — must be defined after sourcing so it doesn't shadow library errors.
 # ---------------------------------------------------------------------------
 _on_err() {
   local code=$? line=$1
   echo "❌ Something went wrong at line $line (exit $code). Exiting…"
-  exit 1
+  DIAG_RESULT="FAILED"
+  DIAG_EXIT_CODE="$code"
+  [[ -z "$DIAG_FAILED_STEP" ]] && DIAG_FAILED_STEP="unknown (line $line)"
+  [[ -z "$DIAG_CAUSE"       ]] && DIAG_CAUSE="Unhandled error at line $line"
+  [[ -z "$DIAG_FIX"         ]] && DIAG_FIX="Export the diagnostic log from the app and review it"
+
+  # Auto-restore: if the caller requested rollback on failure and a backup
+  # directory was created before the error, restore it now — before emitting
+  # the summary so the outcome is visible in the diagnostic log.
+  if [[ "${AUTO_RESTORE_ON_FAILURE:-false}" == "true" \
+        && -n "${BACKUP_DIR:-}" && -d "${BACKUP_DIR:-}" ]]; then
+    echo ""
+    echo "🔄 Auto-restore-on-failure is enabled — attempting rollback…"
+    _restore_silently "$BACKUP_DIR" \
+      || echo "⚠️  Auto-restore attempt failed; backup remains at $BACKUP_DIR"
+    echo ""
+  fi
+
+  write_diagnostic_summary
+  _diag_close
+  exit "$code"
 }
 trap '_on_err $LINENO' ERR
 
@@ -78,14 +148,16 @@ parse_args() {
   RESTORE_MODE=false
   RESTORE_DIR=""
   AUDIT_MODE=false
+  AUTO_RESTORE_ON_FAILURE=false
 
   while [[ $# -gt 0 ]]; do
     case $1 in
-      -f|--force)              FORCE=true;               shift ;;
-      -d|--deep-clean)         DEEP_CLEAN=true;          shift ;;
-      -n|--dry-run)            DRY_RUN=true;             shift ;;
-      --clear-browser-cache)   CLEAR_BROWSER_CACHE=true; shift ;;
-      --audit)                 AUDIT_MODE=true;          shift ;;
+      -f|--force)                   FORCE=true;                   shift ;;
+      -d|--deep-clean)              DEEP_CLEAN=true;              shift ;;
+      -n|--dry-run)                 DRY_RUN=true;                 shift ;;
+      --clear-browser-cache)        CLEAR_BROWSER_CACHE=true;     shift ;;
+      --audit)                      AUDIT_MODE=true;              shift ;;
+      --auto-restore-on-failure)    AUTO_RESTORE_ON_FAILURE=true; shift ;;
       --restore)
         RESTORE_MODE=true
         if [[ $# -gt 1 && "${2:-}" != -* && -n "${2:-}" ]]; then
@@ -105,6 +177,20 @@ parse_args() {
 setup_logging() {
   exec > >(tee -i "$LOG") 2>&1
   echo "zoom_nuke_overkill.sh v$VERSION — $(date)"
+
+  # Open the structured diagnostic log (~/Library/Logs/Zoom Nuke/latest.log).
+  _diag_open "$HOME/Library/Logs/Zoom Nuke" "$VERSION"
+
+  # Record run mode for the summary block.
+  if [[ "${DEEP_CLEAN:-false}" == "true" ]]; then
+    DIAG_RUN_MODE="deep-clean"
+  elif [[ "${DRY_RUN:-false}" == "true" ]]; then
+    DIAG_RUN_MODE="dry-run"
+  elif [[ "${AUDIT_MODE:-false}" == "true" ]]; then
+    DIAG_RUN_MODE="audit"
+  else
+    DIAG_RUN_MODE="standard"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -119,44 +205,122 @@ audit_mode() {
     echo "  Generated: $(date)"
     echo "  Tool version: $VERSION"
     echo "  macOS: $(sw_vers -productVersion 2>/dev/null || echo unknown)"
+    echo "  Architecture: $(uname -m 2>/dev/null || echo unknown)"
     echo "═══════════════════════════════════════════════════"
     echo ""
 
+    # ── Running Zoom Processes ──────────────────────────
+    echo "── Running Zoom Processes ────────────────────────"
+    local zoom_procs
+    zoom_procs=$(pgrep -la -f "zoom" 2>/dev/null || true)
+    if [[ -n "$zoom_procs" ]]; then
+      echo "$zoom_procs" | while IFS= read -r p; do echo "  RUNNING: $p"; done
+    else
+      echo "  (no Zoom processes running)"
+    fi
+    echo ""
+
+    # ── Zoom Application ──────────────────────────────
     echo "── Zoom Application ──────────────────────────────"
     if [[ -d "/Applications/zoom.us.app" ]]; then
       local zoom_ver
       zoom_ver=$(defaults read "/Applications/zoom.us.app/Contents/Info.plist" \
         CFBundleShortVersionString 2>/dev/null || echo "unknown")
-      echo "  Installed: YES (version $zoom_ver)"
+      local app_sz
+      app_sz=$(du -sh "/Applications/zoom.us.app" 2>/dev/null | awk '{print $1}' || echo "?")
+      echo "  Installed:  YES (version $zoom_ver, size $app_sz)"
+      echo "  Would remove: /Applications/zoom.us.app"
     else
-      echo "  Installed: NO"
+      echo "  Installed:  NO"
     fi
     echo ""
 
-    echo "── Zoom Data Directories ─────────────────────────"
-    local dir
+    # ── Zoom Data Directories ─────────────────────────
+    echo "── Zoom Data Directories (would be removed) ──────"
+    local dir total_sz=0
     for dir in "${ZOOM_DATA_DIRS[@]}"; do
       if [[ -e "$dir" ]]; then
         local sz
         sz=$(du -sh "$dir" 2>/dev/null | awk '{print $1}' || echo "?")
         echo "  PRESENT ($sz): $dir"
+        # Check permissions
+        if [[ -d "$dir" && ! -w "$dir" ]]; then
+          echo "             ⚠️  Not writable — may require sudo"
+        fi
       else
-        echo "  absent:         $dir"
+        echo "  absent:    $dir"
       fi
     done
     echo ""
 
+    # ── LaunchAgents / LaunchDaemons ──────────────────
+    echo "── LaunchAgents / LaunchDaemons ──────────────────"
+    local agent_found=false
+    local la
+    for la in \
+        "$HOME/Library/LaunchAgents/us.zoom.xos.plist" \
+        "$HOME/Library/LaunchAgents/com.zoom.us.plist" \
+        "/Library/LaunchAgents/us.zoom.xos.plist" \
+        "/Library/LaunchDaemons/us.zoom.xos.plist" \
+        "/Library/LaunchDaemons/com.zoom.us.plist"; do
+      if [[ -f "$la" ]]; then
+        local la_sz
+        la_sz=$(wc -c < "$la" 2>/dev/null | tr -d ' ' || echo "?")
+        echo "  PRESENT (${la_sz}B): $la"
+        agent_found=true
+      fi
+    done
+    # Also search broadly.
+    # Use process substitution (< <(...)) instead of a pipe so that
+    # `agent_found=true` assignments are visible to the parent shell.
+    # A pipe runs `while` in a subshell; assignments inside it are lost.
+    while IFS= read -r f; do
+      echo "  FOUND: $f"
+      agent_found=true
+    done < <(find "$HOME/Library/LaunchAgents" /Library/LaunchAgents \
+        /Library/LaunchDaemons -maxdepth 1 -name "*zoom*" 2>/dev/null || true)
+    if [[ "$agent_found" == "false" ]]; then
+      echo "  (no Zoom LaunchAgents or LaunchDaemons found)"
+    fi
+    echo ""
+
+    # ── Package Receipts ──────────────────────────────
     echo "── Package Receipts ──────────────────────────────"
     local receipts
     receipts=$(pkgutil --pkgs 2>/dev/null | grep -i zoom || true)
     if [[ -n "$receipts" ]]; then
-      echo "$receipts" | while IFS= read -r r; do echo "  $r"; done
+      echo "$receipts" | while IFS= read -r r; do
+        local receipt_ver
+        receipt_ver=$(pkgutil --pkg-info "$r" 2>/dev/null | awk '/version:/{print $2}' || echo "?")
+        echo "  $r  (version: $receipt_ver)"
+      done
     else
       echo "  (none)"
     fi
     echo ""
 
-    echo "── MAC Address Status ────────────────────────────"
+    # ── Cache and Database Findings ───────────────────
+    echo "── Cache / Database Findings ─────────────────────"
+    local cache_roots=("$HOME/Library/Caches" "$HOME/Library/Application Support" "/Library/Caches")
+    local cache_root match cache_found=false
+    for cache_root in "${cache_roots[@]}"; do
+      [[ -d "$cache_root" ]] || continue
+      while IFS= read -r -d '' match; do
+        local csz
+        csz=$(du -sh "$match" 2>/dev/null | awk '{print $1}' || echo "?")
+        echo "  PRESENT ($csz): $match"
+        cache_found=true
+      done < <(find "$cache_root" -maxdepth 4 \
+        \( -iname "us.zoom*" -o -iname "com.zoom*" -o -iname "zoom.us*" \) \
+        -print0 2>/dev/null || true)
+    done
+    if [[ "$cache_found" == "false" ]]; then
+      echo "  (no Zoom cache or database entries found)"
+    fi
+    echo ""
+
+    # ── MAC Address Status ────────────────────────────
+    echo "── Network Interface / MAC Address ───────────────"
     local hports audit_if audit_itype
     hports=$(networksetup -listallhardwareports 2>/dev/null || true)
     if awk '/Wi-Fi/{found=1} END{exit !found}' <<< "$hports"; then
@@ -166,17 +330,18 @@ audit_mode() {
       audit_if=$(awk '/Device:/ && $2 ~ /^en/ {print $2; exit}' <<< "$hports")
       audit_itype="Ethernet"
     fi
-    local current_mac
+    local current_mac iface_state
     current_mac=$(ifconfig "${audit_if:-en0}" 2>/dev/null | awk '/ether/ {print $2}' || echo "unknown")
-    echo "  Interface: ${audit_if:-unknown} ($audit_itype)"
+    iface_state=$(ifconfig "${audit_if:-en0}" 2>/dev/null | awk 'NR==1{print $2}' || echo "unknown")
+    echo "  Interface:   ${audit_if:-unknown} ($audit_itype)"
+    echo "  State:       $iface_state"
     echo "  Current MAC: $current_mac"
     local mac_bkp="${MAC_BACKUP_PATH:-$HOME/.orig_mac_backup}"
     if [[ -f "$mac_bkp" ]]; then
       local bver biface bmac bts
-      # bver and bts are read for format completeness; only biface and bmac are used.
       # shellcheck disable=SC2034
       IFS=$'\t' read -r bver biface bmac bts < "$mac_bkp" 2>/dev/null || true
-      echo "  Backup: $mac_bkp"
+      echo "  Backup:      $mac_bkp"
       echo "    Original MAC: ${bmac:-?} (interface: ${biface:-?})"
       if [[ "${bmac:-}" == "$current_mac" ]]; then
         echo "    Status: not spoofed (matches backup)"
@@ -188,14 +353,19 @@ audit_mode() {
     fi
     echo ""
 
+    # ── Protection Script ─────────────────────────────
     echo "── Protection Script ─────────────────────────────"
     if [[ -f "$PROTECTION_SCRIPT" ]]; then
-      echo "  EXISTS: $PROTECTION_SCRIPT"
+      local ps_mtime
+      ps_mtime=$(stat -f '%Sm' "$PROTECTION_SCRIPT" 2>/dev/null \
+        || stat -c '%y' "$PROTECTION_SCRIPT" 2>/dev/null || echo "?")
+      echo "  EXISTS (modified $ps_mtime): $PROTECTION_SCRIPT"
     else
       echo "  NOT FOUND: $PROTECTION_SCRIPT"
     fi
     echo ""
 
+    # ── Backup Directories ────────────────────────────
     echo "── Backup Directories ────────────────────────────"
     shopt -s nullglob
     local bkps=("$HOME"/.zoomback.*)
@@ -212,10 +382,13 @@ audit_mode() {
     fi
     echo ""
 
-    echo "── Hardware Fingerprint ──────────────────────────"
+    # ── Hardware Fingerprint ──────────────────────────
+    echo "── Hardware Fingerprint (partially redacted) ─────"
     system_profiler SPHardwareDataType 2>/dev/null \
-      | grep -E "(Model Name|Model Identifier|Serial Number|Hardware UUID)" \
+      | grep -E "(Model Name|Model Identifier)" \
       | sed 's/^/  /' || echo "  (could not read)"
+    echo "  Serial Number: [redacted for privacy — visible in System Settings]"
+    echo "  Hardware UUID: [redacted for privacy — visible in System Settings]"
     echo ""
     echo "═══════════════════════════════════════════════════"
   } | tee "$report"
@@ -276,7 +449,14 @@ restore_mode() {
     if [[ -e "$src" ]]; then
       echo "♻️  Restoring: $dir"
       run mkdir -p "$(dirname "$dir")"
-      run cp -r "$src" "$dir" && (( count++ )) || true
+      # Only increment the counter when the copy actually happens.
+      # In dry-run mode `run` echoes and exits 0, but nothing is written;
+      # using a real cp here (gated on DRY_RUN) keeps the count accurate.
+      if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        run cp -r "$src" "$dir"
+      elif cp -r "$src" "$dir" 2>/dev/null; then
+        (( count++ )) || true
+      fi
     else
       echo "   skipping (not in backup): $dir"
       (( skipped++ )) || true
@@ -435,6 +615,10 @@ print_summary() {
   echo "   To audit without changes:"
   echo "     $0 --audit"
   echo ""
+
+  # Emit the structured diagnostic summary (read by Swift's DiagnosticLogger).
+  write_diagnostic_summary
+  _diag_close
 }
 
 # ---------------------------------------------------------------------------
@@ -488,7 +672,17 @@ main() {
     exit 0
   fi
 
+  # Total progress steps — deep clean adds one extra phase.
+  local _step=0
+  local _total=8
+  [[ "${DEEP_CLEAN:-false}" == "true" ]] && _total=9
+
+  (( _step++ )) || true
+  log_progress "$_step" "$_total" "Checking requirements"
   core_check_requirements          # sets MACOS_VERSION
+
+  (( _step++ )) || true
+  log_progress "$_step" "$_total" "Detecting network interface"
   core_detect_interface            # sets IF, INTERFACE_TYPE
 
   # Create backup dir here (after requirements check, before any removal).
@@ -506,12 +700,23 @@ main() {
   core_confirm ${confirm_extras[@]+"${confirm_extras[@]}"}
 
   check_cancel
+  (( _step++ )) || true
+  log_progress "$_step" "$_total" "Stopping Zoom processes"
   core_kill_zoom
+
+  (( _step++ )) || true
+  log_progress "$_step" "$_total" "Removing Zoom data"
   core_remove_zoom_data            # check_cancel inside each loop iteration
 
   check_cancel
   core_forget_receipts
+
+  (( _step++ )) || true
+  log_progress "$_step" "$_total" "Spoofing MAC address"
   core_spoof_mac
+
+  (( _step++ )) || true
+  log_progress "$_step" "$_total" "Clearing caches"
   core_clear_zoom_caches           # Zoom-only cache entries; check_cancel inside
 
   if [[ "$CLEAR_BROWSER_CACHE" == "true" ]]; then
@@ -519,15 +724,24 @@ main() {
   fi
 
   if [[ "$DEEP_CLEAN" == "true" ]]; then
+    (( _step++ )) || true
+    log_progress "$_step" "$_total" "Deep cleaning caches"
     deep_clean                     # check_cancel inside each scan root
   fi
 
+  (( _step++ )) || true
+  log_progress "$_step" "$_total" "Restarting network"
   core_flush_dns
   core_restart_network
   core_test_connectivity
 
   check_cancel
+  (( _step++ )) || true
+  log_progress "$_step" "$_total" "Downloading and installing Zoom"
   core_download_and_install_zoom
+
+  (( _step++ )) || true
+  log_progress "$_step" "$_total" "Installing protection script"
   install_protection_script
 
   print_summary

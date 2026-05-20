@@ -11,8 +11,26 @@ struct ContentView: View {
     @State var hoverPrimary = false
     @State var hoverCancel = false
 
+    // Diagnostic actions
+    @State var showPrivacyAlert = false
+    @State var pendingDiagAction: DiagAction? = nil
+
+    enum DiagAction { case copy, export, send }
+
+    // Determinate progress driven by [PROGRESS] markers in the shell output.
+    // nil while idle; populated as each phase begins.
+    @State var cleanupProgress: CleanupProgress? = nil
+
+    // Auto-restore: when true, --auto-restore-on-failure is passed to the script
+    // so the ERR trap rolls back Zoom data from the session backup if cleanup fails.
+    @State var autoRestoreOnFailure = false
+
     // Live log — fixed-size ring of the last N output lines.
-    @State var liveLines: [String] = []
+    // Using LiveLine (a struct with a stable UUID) rather than [String] so
+    // that SwiftUI can diff the ForEach correctly when old entries are
+    // dropped from the front; offset-based IDs shift on every truncation
+    // and trigger full re-renders + spurious transition animations.
+    @State var liveLines: [LiveLine] = []
     @State var liveLogVisible = false
     static let maxLiveLines = 80
 
@@ -44,6 +62,13 @@ struct ContentView: View {
             }
         )
         .onDisappear { processManager.terminate() }
+        // Privacy gate before any diagnostic export/send action
+        .alert("Review Before Sending", isPresented: $showPrivacyAlert) {
+            Button("Continue") { executePendingDiagAction() }
+            Button("Cancel", role: .cancel) { pendingDiagAction = nil }
+        } message: {
+            Text(DiagnosticRedactor.privacyWarning)
+        }
     }
 
     // MARK: - Window Chrome
@@ -78,10 +103,12 @@ struct ContentView: View {
         return VStack(spacing: 14) {
             header
             modeSection
+            optionsSection
             runningProgress
             statusBanner
             liveLogSection
             actionRow
+            diagnosticRow
             footer
         }
         .padding(.horizontal, 18)
@@ -168,16 +195,59 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Options
+
+    var optionsSection: some View {
+        Toggle(isOn: $autoRestoreOnFailure) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Auto-restore on failure")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(Color.white.opacity(runState == .running ? 0.35 : 0.80))
+                Text("Rolls back Zoom data from the session backup if cleanup fails.")
+                    .font(.system(size: 10))
+                    .foregroundColor(Color.white.opacity(runState == .running ? 0.25 : 0.42))
+            }
+        }
+        .toggleStyle(.switch)
+        .tint(Color(red: 0.30, green: 0.66, blue: 1.00))
+        .disabled(runState == .running)
+        .padding(.horizontal, 2)
+    }
+
     // MARK: - Progress & Status
 
     @ViewBuilder
     var runningProgress: some View {
         if runState == .running {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Cleanup in progress...")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(Color.white.opacity(0.70))
-                ProgressView().progressViewStyle(.linear).tint(primaryAccent)
+                if let p = cleanupProgress {
+                    // Determinate: shell is emitting [PROGRESS] markers.
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Step \(p.step)/\(p.total):")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundColor(primaryAccent.opacity(0.85))
+                        Text(p.label)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(Color.white.opacity(0.70))
+                            .lineLimit(1)
+                        Spacer()
+                        Text("\(p.percent)%")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundColor(primaryAccent.opacity(0.70))
+                    }
+                    ProgressView(value: p.fraction)
+                        .progressViewStyle(.linear)
+                        .tint(primaryAccent)
+                        .animation(.easeInOut(duration: 0.3), value: p.fraction)
+                } else {
+                    // Indeterminate: waiting for first progress marker.
+                    Text("Cleanup in progress…")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(Color.white.opacity(0.70))
+                    ProgressView()
+                        .progressViewStyle(.linear)
+                        .tint(primaryAccent)
+                }
             }
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
@@ -231,12 +301,11 @@ struct ContentView: View {
                     ScrollViewReader { proxy in
                         ScrollView(.vertical, showsIndicators: false) {
                             VStack(alignment: .leading, spacing: 2) {
-                                ForEach(Array(liveLines.enumerated()), id: \.offset) { idx, line in
-                                    Text(line)
+                                ForEach(liveLines) { liveLine in
+                                    Text(liveLine.text)
                                         .font(.system(size: 10, weight: .regular, design: .monospaced))
-                                        .foregroundColor(lineColor(line))
+                                        .foregroundColor(lineColor(liveLine.text))
                                         .frame(maxWidth: .infinity, alignment: .leading)
-                                        .id(idx)
                                 }
                             }
                             .padding(.horizontal, 10)
@@ -246,17 +315,17 @@ struct ContentView: View {
                         .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.35)))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(0.07), lineWidth: 0.5))
                         .onChange(of: liveLines.count) { _ in
-                            if let last = liveLines.indices.last {
-                                withAnimation { proxy.scrollTo(last, anchor: .bottom) }
+                            if let last = liveLines.last {
+                                withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                             }
                         }
                     }
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 } else {
                     if let last = liveLines.last {
-                        Text(last)
+                        Text(last.text)
                             .font(.system(size: 10, weight: .regular, design: .monospaced))
-                            .foregroundColor(lineColor(last).opacity(0.75))
+                            .foregroundColor(lineColor(last.text).opacity(0.75))
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -270,6 +339,71 @@ struct ContentView: View {
             .transition(.opacity)
         }
     }
+
+    // MARK: - Diagnostic Row
+
+    @ViewBuilder
+    var diagnosticRow: some View {
+        let logReady = runState == .success || runState == .failure || runState == .cancelled
+        if logReady {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.badge.gearshape")
+                        .font(.system(size: 10))
+                        .foregroundColor(Color.white.opacity(0.35))
+                    Text("DIAGNOSTIC REPORT")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundColor(Color.white.opacity(0.35))
+                        .tracking(0.8)
+                    Spacer()
+                }
+                HStack(spacing: 10) {
+                    diagButton("Copy Log", systemImage: "doc.on.clipboard") {
+                        // Copy does not contain identifiable data by design — no gate.
+                        DiagnosticReport.copyToClipboard()
+                    }
+                    diagButton("Export Log", systemImage: "square.and.arrow.up") {
+                        pendingDiagAction = .export
+                        showPrivacyAlert  = true
+                    }
+                    diagButton("Send Report", systemImage: "envelope") {
+                        pendingDiagAction = .send
+                        showPrivacyAlert  = true
+                    }
+                }
+            }
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
+    }
+
+    private func diagButton(_ label: String, systemImage: String,
+                             action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(label, systemImage: systemImage)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(Color.white.opacity(0.72))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.white.opacity(0.07)))
+                .overlay(RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.white.opacity(0.10), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+    }
+
+    func executePendingDiagAction() {
+        switch pendingDiagAction {
+        case .copy:   DiagnosticReport.copyToClipboard()
+        case .export: DiagnosticReport.exportWithSavePanel()
+        case .send:   DiagnosticReport.sendViaMail()
+        case nil:     break
+        }
+        pendingDiagAction = nil
+    }
+
+    // MARK: - Line coloring (live log)
 
     func lineColor(_ line: String) -> Color {
         if line.contains("❌") || line.lowercased().contains("error") || line.lowercased().contains("fail") {
@@ -348,20 +482,28 @@ struct ContentView: View {
                 .font(.system(size: 11))
                 .foregroundColor(Color.white.opacity(0.34))
             Button {
-                let logURL = URL(fileURLWithPath: ContentView.logFilePath)
-                if FileManager.default.fileExists(atPath: logURL.path) {
-                    NSWorkspace.shared.open(logURL)
+                // Prefer the structured diagnostic log; fall back to zoom_fix.log.
+                if let diagURL = DiagnosticReport.latestLogURL(),
+                   FileManager.default.isReadableFile(atPath: diagURL.path) {
+                    NSWorkspace.shared.activateFileViewerSelecting([diagURL])
                 } else {
-                    NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory()))
+                    let legacyURL = URL(fileURLWithPath: ContentView.logFilePath)
+                    if FileManager.default.fileExists(atPath: legacyURL.path) {
+                        NSWorkspace.shared.activateFileViewerSelecting([legacyURL])
+                    } else {
+                        NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory()))
+                    }
                 }
             } label: {
-                Text("~/zoom_fix.log")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(Color.white.opacity(0.44))
+                Text("~/Library/Logs/Zoom Nuke/latest.log")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundColor(Color.white.opacity(0.38))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             .buttonStyle(.plain)
-            .help("Open log file or home folder")
-            .accessibilityLabel("Open log file")
+            .help("Reveal diagnostic log in Finder")
+            .accessibilityLabel("Open diagnostic log in Finder")
             Spacer()
         }
         .padding(.top, 4)

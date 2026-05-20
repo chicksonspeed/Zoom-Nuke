@@ -1,0 +1,17 @@
+{
+  "name": "zoom-nuke-release-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot that announces new Zoom-Nuke GitHub releases",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  },
+  "license": "MIT"
+}

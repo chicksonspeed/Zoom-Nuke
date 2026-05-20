@@ -70,10 +70,15 @@ check_cancel() {
 # ---------------------------------------------------------------------------
 core_check_requirements() {
   echo "🔍 Checking system requirements..."
-  [[ "$(uname)" == "Darwin" ]] || { echo "❌ Only macOS supported."; exit 1; }
+  log_step "Checking system requirements" "requirements"
+  [[ "$(uname)" == "Darwin" ]] || {
+    log_error "Only macOS is supported" "requirements" "exit=1"
+    echo "❌ Only macOS supported."; exit 1
+  }
 
   if [[ "${DRY_RUN:-false}" == "true" ]]; then
     echo "⚠️  DRY RUN mode — no destructive changes will be made."
+    log_info "DRY RUN mode active — no changes will be made" "requirements"
   fi
 
   MACOS_VERSION=$(sw_vers -productVersion)
@@ -81,22 +86,30 @@ core_check_requirements() {
   current_num=$(version_to_number "$MACOS_VERSION")
   min_num=$(version_to_number "$MIN_MACOS_VERSION")
   if (( 10#$current_num < 10#$min_num )); then
+    log_error "Unsupported macOS version: $MACOS_VERSION (min: $MIN_MACOS_VERSION)" "requirements" "exit=1"
     echo "❌ Unsupported macOS version: $MACOS_VERSION (minimum: $MIN_MACOS_VERSION)"
     exit 1
   fi
+  log_success "macOS version OK: $MACOS_VERSION" "requirements"
   echo "✅ macOS version: $MACOS_VERSION"
 
   local cmd
   for cmd in sudo curl openssl networksetup pkgutil; do
-    command -v "$cmd" &>/dev/null || { echo "❌ Missing required tool: $cmd"; exit 1; }
+    command -v "$cmd" &>/dev/null || {
+      log_error "Missing required tool: $cmd" "requirements" "exit=1"
+      echo "❌ Missing required tool: $cmd"; exit 1
+    }
   done
+  log_info "All required tools present" "requirements"
 
   local free_mb
   free_mb=$(df -m "$HOME" 2>/dev/null | awk 'NR==2 {print $4}' || echo "0")
   if (( free_mb < MIN_FREE_MB )); then
+    log_error "Insufficient disk space: ${free_mb}MB (need ${MIN_FREE_MB}MB)" "requirements" "exit=1"
     echo "❌ Insufficient disk space: ${free_mb}MB free, ${MIN_FREE_MB}MB required."
     exit 1
   fi
+  log_info "Disk space OK: ${free_mb}MB available" "requirements"
   echo "✅ Disk space: ${free_mb}MB available"
 }
 
@@ -151,14 +164,17 @@ core_confirm() {
 # ---------------------------------------------------------------------------
 core_kill_zoom() {
   echo "🚀 Killing Zoom processes..."
+  log_step "Terminating Zoom processes" "zoom_kill"
   run killall zoom.us Zoom zoom 2>/dev/null || true
   sleep 3
 
   if pgrep -f "zoom" >/dev/null 2>&1; then
     echo "⚠️  Some Zoom processes still running, force killing..."
+    log_warn "Zoom still running — escalating to SIGKILL" "zoom_kill"
     run sudo killall -9 zoom.us Zoom zoom 2>/dev/null || true
     sleep 2
   fi
+  log_success "Zoom processes terminated" "zoom_kill"
 }
 
 # ---------------------------------------------------------------------------
@@ -251,10 +267,18 @@ core_clear_zoom_caches() {
     check_cancel
     if [[ -d "$cache_dir" ]]; then
       echo "🧹 Clearing Zoom cache entries in: $cache_dir"
+      # Remove matching files first (-type f), then remove any empty
+      # matching directories (-type d, depth-first so children go first).
+      # Without the directory pass, empty Zoom-named dirs would remain and
+      # could be detected as fingerprints or reused by a fresh Zoom install.
       run find "$cache_dir" \
         \( -name "*zoom*" -o -name "*Zoom*" -o -name "*us.zoom*" \) \
         -not -path "*/System/Library/*" \
         -type f -delete 2>/dev/null || true
+      run find "$cache_dir" \
+        \( -name "*zoom*" -o -name "*Zoom*" -o -name "*us.zoom*" \) \
+        -not -path "*/System/Library/*" \
+        -type d -depth -empty -delete 2>/dev/null || true
     fi
   done
 
@@ -383,6 +407,7 @@ INSTALLOMATOR_BIN="${INSTALLOMATOR_BIN:-/usr/local/Installomator/Installomator.s
 core_download_and_install_zoom() {
   if [[ "${DRY_RUN:-false}" == "true" ]]; then
     echo "[DRY RUN] Would download and install Zoom from $ZOOM_URL"
+    log_info "[DRY RUN] Would download and install Zoom from $ZOOM_URL" "download"
     return 0
   fi
 
@@ -390,8 +415,10 @@ core_download_and_install_zoom() {
   pkg=$(mktemp "${TMPDIR:-/tmp}/Zoom.XXXXXXXX.pkg")
 
   echo "⬇️  Downloading Zoom from official source..."
+  log_step "Downloading Zoom installer" "download" "url=$ZOOM_URL"
   if ! curl -L --fail --silent --show-error --connect-timeout 30 --max-time 300 \
        -o "$pkg" "$ZOOM_URL"; then
+    log_error "Zoom download failed" "download" "exit=1" "cause=Network failure or DNS error"
     echo "❌ Zoom download failed. Trying Installomator fallback..."
     installomator_pkg=$(mktemp "${TMPDIR:-/tmp}/Installomator.XXXXXXXX.pkg")
 
@@ -484,6 +511,7 @@ core_download_and_install_zoom() {
   local zoom_ver
   zoom_ver=$(defaults read "/Applications/zoom.us.app/Contents/Info.plist" \
     CFBundleShortVersionString 2>/dev/null || echo "unknown")
+  log_success "Zoom installed successfully" "install" "version=$zoom_ver"
   echo "✅ Zoom installed (version: $zoom_ver)"
 }
 
