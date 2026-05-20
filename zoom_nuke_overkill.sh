@@ -102,10 +102,15 @@ _restore_silently() {
 _on_err() {
   local code=$? line=$1
   echo "❌ Something went wrong at line $line (exit $code). Exiting…"
+  # shellcheck disable=SC2034
   DIAG_RESULT="FAILED"
+  # shellcheck disable=SC2034
   DIAG_EXIT_CODE="$code"
+  # shellcheck disable=SC2034
   [[ -z "$DIAG_FAILED_STEP" ]] && DIAG_FAILED_STEP="unknown (line $line)"
+  # shellcheck disable=SC2034
   [[ -z "$DIAG_CAUSE"       ]] && DIAG_CAUSE="Unhandled error at line $line"
+  # shellcheck disable=SC2034
   [[ -z "$DIAG_FIX"         ]] && DIAG_FIX="Export the diagnostic log from the app and review it"
 
   # Auto-restore: if the caller requested rollback on failure and a backup
@@ -182,6 +187,7 @@ setup_logging() {
   _diag_open "$HOME/Library/Logs/Zoom Nuke" "$VERSION"
 
   # Record run mode for the summary block.
+  # shellcheck disable=SC2034
   if [[ "${DEEP_CLEAN:-false}" == "true" ]]; then
     DIAG_RUN_MODE="deep-clean"
   elif [[ "${DRY_RUN:-false}" == "true" ]]; then
@@ -237,7 +243,7 @@ audit_mode() {
 
     # ── Zoom Data Directories ─────────────────────────
     echo "── Zoom Data Directories (would be removed) ──────"
-    local dir total_sz=0
+    local dir
     for dir in "${ZOOM_DATA_DIRS[@]}"; do
       if [[ -e "$dir" ]]; then
         local sz

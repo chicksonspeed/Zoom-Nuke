@@ -23,6 +23,7 @@ export ZOOM_NUKE_TEST_MODE=1   # signal to any sourced scripts that this is a te
 export DRY_RUN=true            # prevent any destructive core library operations
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+# shellcheck disable=SC2034
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 
 VERBOSE=false
