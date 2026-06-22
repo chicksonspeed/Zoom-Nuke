@@ -13,7 +13,7 @@ jobs:
     name: shellcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install shellcheck
         run: sudo apt-get install -y shellcheck
@@ -51,7 +51,7 @@ jobs:
     name: Source structure guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Verify canonical core files exist in Sources/ZoomNukeCore/
         run: |
@@ -120,7 +120,7 @@ jobs:
     name: Build macOS app
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
@@ -137,7 +137,7 @@ jobs:
     name: Swift unit tests
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
@@ -154,7 +154,7 @@ jobs:
     name: Shell unit tests
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Make test runner executable
         run: chmod +x tests/shell/run_tests.sh
@@ -171,7 +171,7 @@ jobs:
     name: Dry-run & structure validation
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Run validation suite
         run: |
@@ -185,7 +185,7 @@ jobs:
     name: Preflight environment check
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Run preflight check
         # exit 2 (degraded mode) is expected and acceptable in CI.
@@ -212,7 +212,7 @@ jobs:
     name: End-to-end dry-run smoke test
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Make scripts executable
         run: |
